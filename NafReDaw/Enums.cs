@@ -6,3 +6,9 @@ public enum DawMode
     Record,
     Arrange
 }
+
+public enum SampleEditMode
+{
+    Start,
+    End
+}

@@ -52,12 +52,25 @@ public static class LaunchpadLayout
 
     public const int GridLastNote = 0x58;
 
+    public const int RecordArmButtonCc = 0x01;
+    public const int TrackSelectButtonCc = 0x02;
+    public const int MuteButtonCc = 0x03;
+    public const int SoloButtonCc = 0x04;
+    public const int VolumeButtonCc = 0x05;
+    public const int PanButtonCc = 0x06;
+    public const int SendsButtonCc = 0x07;
+    public const int StopClipButtonCc = 0x08;
     public const int UndoButtonCc = 0x3C;
-    public const int ClockButtonCc = 0x46;
+    public const int ClickButtonCc = 0x46;
+    public const int UpButtonCc = 0x5B;
+    public const int DownButtonCc = 0x5C;
+    public const int LeftButtonCc = 0x5D;
+    public const int RightButtonCc = 0x5E;
     public const int SessionButtonCc = 0x5F;
     public const int NoteButtonCc = 0x60;
     public const int DeviceButtonCc = 0x61;
     public const int UserButtonCc = 0x62;
+
 
     /// <summary>CC for the round side button beside grid row <paramref name="row"/> (0–7).</summary>
     public static int RowButtonCc(int row) => 19 + row * 10;
@@ -380,7 +393,7 @@ public sealed class LaunchpadDevice : IDisposable
     }
 
     public void PulseClockButton(bool accented = false) =>
-        PulseSideButton(LaunchpadLayout.ClockButtonCc, accented ? LaunchpadColors.GreenBright : LaunchpadColors.Amber);
+        PulseSideButton(LaunchpadLayout.ClickButtonCc, accented ? LaunchpadColors.GreenBright : LaunchpadColors.Amber);
 
     /// <summary>Sends note-off (velocity 0) for all notes and side-button CCs.</summary>
     public void ClearAll()
@@ -396,7 +409,7 @@ public sealed class LaunchpadDevice : IDisposable
         }
 
         SendControlChange(LaunchpadLayout.UndoButtonCc, 0);
-        SendControlChange(LaunchpadLayout.ClockButtonCc, 0);
+        SendControlChange(LaunchpadLayout.ClickButtonCc, 0);
         for (int row = 0; row < LaunchpadLayout.GridRows; row++)
         {
             SetRowButton(row, 0);
