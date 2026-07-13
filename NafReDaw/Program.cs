@@ -12,6 +12,8 @@ internal class Program
     private static LaunchpadDevice launchpad = null!;
     private static DawMode mode = DawMode.Play;
     private static AsioSampleEngine audioEngine = new AsioSampleEngine();
+    private static int currentlyPlayingSampleHandle = -1;
+    private static int currentlyPlayingNote = -1;
 
 [STAThread]
     static void Main(string[] args)
@@ -299,13 +301,6 @@ internal class Program
         Console.WriteLine($"MIDI devices connected (input '{inputName}', output '{outputName}')");
     }
 
-    //static void SyncSession(DawProject project, ModeHolder mode, LaunchpadDevice launchpad)
-    //{
-    //    _project = project;
-    //    _mode = mode;
-    //    _launchpad = launchpad;
-    //}
-
     static void ApplyProject()
     {
         CreateLaunchPadDevice(
@@ -324,6 +319,19 @@ internal class Program
         {
             Console.WriteLine($"Pad {e.Row},{e.Column} note 0x{e.NoteNumber:X2}");
         }
+
+        if (mode is not DawMode.Play and not DawMode.Record)
+        {
+            return;
+        }
+
+        var loaded = project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
+        if (loaded?.InMemorySample is null)
+        {
+            return;
+        }
+
+        PlayLoadedSample(loaded);
     }
 
     static void HandleSideButton(LaunchpadButtonEventArgs e)
@@ -354,11 +362,39 @@ internal class Program
         RefreshLaunchpad();
     }
 
-    static void RefreshModeButtons(LaunchpadDevice launchpad, DawMode mode)
+    static void PlayLoadedSample(LoadedSample sample)
     {
-        launchpad.SetSideButton(LaunchpadLayout.SessionButtonCc, mode == DawMode.Play ? LaunchpadColors.Green : LaunchpadColors.Off);
-        launchpad.SetSideButton(LaunchpadLayout.NoteButtonCc, mode == DawMode.Record ? LaunchpadColors.Red : LaunchpadColors.Off);
-        launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, mode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
+        if (sample.InMemorySample is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var skipPlay = false;
+            if (currentlyPlayingSampleHandle != -1)
+            {
+                audioEngine.StopPlayback(currentlyPlayingSampleHandle);
+                skipPlay = currentlyPlayingNote == sample.Note;
+            }
+            if (!skipPlay)
+            {
+                currentlyPlayingNote = sample.Note;
+                currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, () =>
+                {
+                    currentlyPlayingSampleHandle = -1;
+                    currentlyPlayingNote = -1;
+                });
+            }
+            else
+            {
+                currentlyPlayingNote = -1;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to play sample '{sample.FileName}': {ex.Message}");
+        }
     }
 
     static void ApplyAudioDevice()
@@ -393,7 +429,6 @@ internal class Program
         
         return samplesFolder;
     }
-
 
     static void LoadSamplesIntoMemory()
     {
@@ -439,6 +474,7 @@ internal class Program
 
     static void RefreshLaunchpad()
     {
+        // Refresh pad buttons
         var sampleNotes = project.LoadedSamples.Select(s => s.Note).ToHashSet();
 
         for (int row = 0; row < LaunchpadLayout.GridRows; row++)
@@ -451,7 +487,10 @@ internal class Program
             }
         }
 
-        RefreshModeButtons(launchpad, mode);
+        // Refresh mode buttons
+        launchpad.SetSideButton(LaunchpadLayout.SessionButtonCc, mode == DawMode.Play ? LaunchpadColors.Green : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.NoteButtonCc, mode == DawMode.Record ? LaunchpadColors.Red : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, mode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
     }
 
     static void AddSample(byte note, string sourceFile)
@@ -719,8 +758,3 @@ internal class Program
         return true;
     }
 }
-
-
-//launchpad.SetPad(0, 0, LaunchpadColors.Green);   // top-left pad
-//        launchpad.SetSideButton(LaunchpadLayout.ClockButtonCc, LaunchpadColors.Amber);
-//        launchpad.ClearGrid();
