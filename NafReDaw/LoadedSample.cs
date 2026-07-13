@@ -13,6 +13,8 @@ public class LoadedSample
 
     public int EndSample { get; set; }
 
+    public bool Loop { get; set; }
+
     [JsonIgnore]
     public InMemorySample? InMemorySample { get; set; }
 }

@@ -676,7 +676,7 @@ public sealed class AsioSampleEngine : IDisposable
     }
 
     /// <summary>Plays a sample once. Returns a handle that can be passed to <see cref="StopPlayback"/>.</summary>
-    public int PlayOneShot(InMemorySample sample, int start, int end, Action? onFinished = null)
+    public int PlayOneShot(InMemorySample sample, int start, int end, bool loop, Action? onFinished = null)
     {
         start = Math.Clamp(start, 0, sample.SampleCount);
         end = end > 0
@@ -694,7 +694,7 @@ public sealed class AsioSampleEngine : IDisposable
 
         EnsurePlaybackStarted();
         int handle = _nextPlaybackHandle++;
-        var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: false);
+        var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: loop);
         raw.Finished += () =>
         {
             RemovePlayback(handle);

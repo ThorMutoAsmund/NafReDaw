@@ -425,6 +425,11 @@ internal class Program
                     SetEditMode(SampleEditMode.End);
                     break;
                 }
+            case LaunchpadLayout.StopClipButtonCc when currentlyEditingNote != -1:
+                {
+                    ToggleLoop();
+                    break;
+                }
             case LaunchpadLayout.UpButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
                 {
                     TrimSample(
@@ -453,6 +458,30 @@ internal class Program
                         endMilliSeconds: editMode == SampleEditMode.End ? -ShortTrimSeconds : null);
                     break;
                 }
+        }
+    }
+
+
+    static void ToggleLoop()
+    {
+        if (currentlyEditingNote == -1)
+        {
+            return;
+        }
+
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlyEditingNote);
+        if (sample is null)
+        {
+            return;
+        }
+
+        sample.Loop = !sample.Loop;
+        project.ChangesMade = true;
+        RefreshLaunchpad();
+
+        if (Debugger.IsAttached)
+        {
+            Console.WriteLine($"Loop note 0x{currentlyEditingNote:X2}: {sample.Loop}");
         }
     }
 
@@ -543,7 +572,7 @@ internal class Program
             }
 
             currentlyPlayingNote = sample.Note;
-            currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, () =>
+            currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, sample.Loop, () =>
             {
                 currentlyPlayingSampleHandle = -1;
                 currentlyPlayingNote = -1;
@@ -678,10 +707,18 @@ internal class Program
         launchpad.SetSideButton(LaunchpadLayout.NoteButtonCc, mode == DawMode.Record ? LaunchpadColors.Red : LaunchpadColors.Off);
         launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, mode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
 
+        // Refresh edit buttons
         launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, 
             currentlyEditingNote != -1 && editMode == SampleEditMode.Start ? LaunchpadColors.Green : LaunchpadColors.Off);
         launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc,
             currentlyEditingNote != -1 && editMode == SampleEditMode.End ? LaunchpadColors.Green : LaunchpadColors.Off);
+        
+        // Refresh loop button
+        var editingSample = currentlyEditingNote != -1
+            ? project.LoadedSamples.FirstOrDefault(s => s.Note == currentlyEditingNote)
+            : null;
+        launchpad.SetSideButton(LaunchpadLayout.StopClipButtonCc,
+            editingSample?.Loop == true ? LaunchpadColors.Red : LaunchpadColors.Off);
 
     }
 
