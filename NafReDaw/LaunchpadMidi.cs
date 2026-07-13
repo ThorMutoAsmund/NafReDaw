@@ -52,8 +52,12 @@ public static class LaunchpadLayout
 
     public const int GridLastNote = 0x58;
 
-    public const int UndoButtonCc = 60;
-    public const int ClockButtonCc = 70;
+    public const int UndoButtonCc = 0x3C;
+    public const int ClockButtonCc = 0x46;
+    public const int SessionButtonCc = 0x5F;
+    public const int NoteButtonCc = 0x60;
+    public const int DeviceButtonCc = 0x61;
+    public const int UserButtonCc = 0x62;
 
     /// <summary>CC for the round side button beside grid row <paramref name="row"/> (0–7).</summary>
     public static int RowButtonCc(int row) => 19 + row * 10;

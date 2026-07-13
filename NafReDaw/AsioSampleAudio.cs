@@ -335,7 +335,7 @@ public sealed class AsioAudioBackend : IAudioBackend
 
 
 /// <summary>In-memory sample as IEEE float interleaved channels.</summary>
-public sealed class LoadedSample
+public sealed class InMemorySample
 {
     public string FilePath { get; }
     public string Name { get; }
@@ -343,7 +343,7 @@ public sealed class LoadedSample
     public WaveFormat WaveFormat { get; }
     public int SampleCount => Samples.Length;
 
-    public LoadedSample(string filePath, string name, float[] samples, WaveFormat waveFormat)
+    public InMemorySample(string filePath, string name, float[] samples, WaveFormat waveFormat)
     {
         FilePath = filePath;
         Name = name;
@@ -628,7 +628,7 @@ public sealed class AsioSampleEngine : IDisposable
     public static IReadOnlyList<AudioDeviceInfo> GetDrivers() => new AsioAudioBackend().GetPlaybackDevices();
 
     /// <summary>Loads a WAV or MP3 file into memory as IEEE float samples.</summary>
-    public static LoadedSample LoadSample(string filePath)
+    public static InMemorySample LoadSample(string filePath)
     {
         using var reader = new AudioFileReader(filePath);
         var samples = new List<float>();
@@ -643,7 +643,7 @@ public sealed class AsioSampleEngine : IDisposable
         }
 
         var name = Path.GetFileNameWithoutExtension(filePath);
-        return new LoadedSample(filePath, name, samples.ToArray(), reader.WaveFormat);
+        return new InMemorySample(filePath, name, samples.ToArray(), reader.WaveFormat);
     }
 
     /// <summary>Starts the mixer and ASIO playback output. Required before PlayOneShot/PlayLoop.</summary>
@@ -676,7 +676,7 @@ public sealed class AsioSampleEngine : IDisposable
     }
 
     /// <summary>Plays a sample once. Returns a handle that can be passed to <see cref="StopPlayback"/>.</summary>
-    public int PlayOneShot(LoadedSample sample, Action? onFinished = null)
+    public int PlayOneShot(InMemorySample sample, Action? onFinished = null)
     {
         EnsurePlaybackStarted();
         int handle = _nextPlaybackHandle++;
@@ -698,7 +698,7 @@ public sealed class AsioSampleEngine : IDisposable
     }
 
     /// <summary>Plays a sample in a loop. Optional <paramref name="startAfterSamples"/> inserts silence first.</summary>
-    public int PlayLoop(LoadedSample sample, int startAfterSamples = 0, Action? onLoopRestart = null, Action? onFinished = null)
+    public int PlayLoop(InMemorySample sample, int startAfterSamples = 0, Action? onLoopRestart = null, Action? onFinished = null)
     {
         EnsurePlaybackStarted();
         int handle = _nextPlaybackHandle++;
