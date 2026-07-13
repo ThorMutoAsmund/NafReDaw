@@ -14,6 +14,10 @@ internal class Program
     private static AsioSampleEngine audioEngine = new AsioSampleEngine();
     private static int currentlyPlayingSampleHandle = -1;
     private static int currentlyPlayingNote = -1;
+    private static int currentlyEditingNote = -1;
+    private static CancellationTokenSource? padLongPressCts;
+    private static int padLongPressNote = -1;
+    private const int PadLongPressMilliseconds = 1000;
 
 [STAThread]
     static void Main(string[] args)
@@ -285,13 +289,15 @@ internal class Program
     {
         if (launchpad != null)
         {
+            CancelPadLongPressTimer();
             launchpad.Stop();
             launchpad.Dispose();
         }
 
         launchpad = new LaunchpadDevice();
 
-        launchpad.PadPressed += (_, e) => HandleNoteButton(e);        
+        launchpad.PadPressed += (_, e) => HandleNotePadPressed(e);
+        launchpad.PadReleased += (_, e) => HandleNotePadReleased(e);
         launchpad.SideButtonPressed += (_, e) => HandleSideButton(e);
 
         launchpad.Start(inputDeviceIndex: inputDeviceIndex, outputDeviceIndex: outputDeviceIndex);
@@ -313,25 +319,73 @@ internal class Program
         RefreshLaunchpad();        
     }
 
-    static void HandleNoteButton(LaunchpadPadEventArgs e)
+    static void HandleNotePadPressed(LaunchpadPadEventArgs e)
     {
         if (Debugger.IsAttached)
         {
             Console.WriteLine($"Pad {e.Row},{e.Column} note 0x{e.NoteNumber:X2}");
         }
 
-        if (mode is not DawMode.Play and not DawMode.Record)
+        if (mode is DawMode.Play or DawMode.Record)
         {
-            return;
+            if (currentlyPlayingNote != e.NoteNumber)
+            {
+                currentlyEditingNote = -1;
+            }
+            var loaded = project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
+            if (loaded?.InMemorySample is not null)
+            {
+                PlayLoadedSample(loaded);
+            }
         }
 
-        var loaded = project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
-        if (loaded?.InMemorySample is null)
-        {
-            return;
-        }
+        CancelPadLongPressTimer();
 
-        PlayLoadedSample(loaded);
+        padLongPressNote = e.NoteNumber;
+        padLongPressCts = new CancellationTokenSource();
+        var cts = padLongPressCts;
+        var note = e.NoteNumber;
+
+        _ = WaitForPadLongPressAsync(note, cts.Token);
+    }
+
+    static async Task WaitForPadLongPressAsync(int note, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(PadLongPressMilliseconds, cancellationToken);
+            if (padLongPressNote != note)
+            {
+                return;
+            }
+
+            currentlyEditingNote = currentlyEditingNote == note ? -1 : note;
+            RefreshLaunchpad();
+            if (Debugger.IsAttached)
+            {
+                Console.WriteLine($"Editing note 0x{note:X2}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    static void HandleNotePadReleased(LaunchpadPadEventArgs e)
+    {
+        CancelPadLongPressTimer();
+
+        if (padLongPressNote == e.NoteNumber)
+        {
+            padLongPressNote = -1;
+        }
+    }
+
+    static void CancelPadLongPressTimer()
+    {
+        padLongPressCts?.Cancel();
+        padLongPressCts?.Dispose();
+        padLongPressCts = null;
     }
 
     static void HandleSideButton(LaunchpadButtonEventArgs e)
@@ -358,6 +412,8 @@ internal class Program
     static void SetMode(DawMode newMode)
     {
         audioEngine.StopAllPlayback();
+        currentlyPlayingSampleHandle = -1;
+        currentlyPlayingNote = -1;
         mode = newMode;
         Console.WriteLine($"Mode: {mode}");
         RefreshLaunchpad();
@@ -375,18 +431,52 @@ internal class Program
             if (currentlyPlayingSampleHandle != -1)
             {
                 audioEngine.StopPlayback(currentlyPlayingSampleHandle);
+                currentlyPlayingSampleHandle = -1;
+                currentlyPlayingNote = -1;
             }
+
             currentlyPlayingNote = sample.Note;
             currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, () =>
             {
                 currentlyPlayingSampleHandle = -1;
                 currentlyPlayingNote = -1;
+                RefreshLaunchpad();
             });
+
+            if (currentlyPlayingSampleHandle == -1)
+            {
+                currentlyPlayingNote = -1;
+            }
+
+            RefreshLaunchpad();
         }
         catch (Exception ex)
         {
+            currentlyPlayingSampleHandle = -1;
+            currentlyPlayingNote = -1;
+            RefreshLaunchpad();
             Console.WriteLine($"Failed to play sample '{sample.FileName}': {ex.Message}");
         }
+    }
+
+    static byte GetPadColorForNote(int note)
+    {
+        if (!project.LoadedSamples.Any(s => s.Note == note))
+        {
+            return LaunchpadColors.Off;
+        }
+
+        if (currentlyEditingNote == note && mode is DawMode.Play or DawMode.Record)
+        {
+            return LaunchpadColors.Blue;
+        }
+
+        if (currentlyPlayingNote == note && mode is DawMode.Play or DawMode.Record)
+        {
+            return LaunchpadColors.GreenBright;
+        }
+
+        return LaunchpadColors.DimWhite;
     }
 
     static void ApplyAudioDevice()
@@ -467,15 +557,12 @@ internal class Program
     static void RefreshLaunchpad()
     {
         // Refresh pad buttons
-        var sampleNotes = project.LoadedSamples.Select(s => s.Note).ToHashSet();
-
         for (int row = 0; row < LaunchpadLayout.GridRows; row++)
         {
             for (int col = 0; col < LaunchpadLayout.GridColumns; col++)
             {
                 var note = LaunchpadLayout.NoteFromGrid(row, col);
-                var color = sampleNotes.Contains((byte)note) ? LaunchpadColors.DimWhite : LaunchpadColors.Off;
-                launchpad.SetPad(row, col, color);
+                launchpad.SetPad(row, col, GetPadColorForNote(note));
             }
         }
 

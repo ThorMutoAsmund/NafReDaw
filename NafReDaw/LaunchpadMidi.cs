@@ -461,12 +461,14 @@ public sealed class LaunchpadDevice : IDisposable
 
         switch (e.MidiEvent)
         {
-            case NoteOnEvent noteOn:
-                HandleNoteEvent(noteOn.NoteNumber, (byte)noteOn.Velocity);
+            case NoteEvent noteEvent:
+            {
+                byte velocity = noteEvent.CommandCode == MidiCommandCode.NoteOff || noteEvent.Velocity == 0
+                    ? (byte)0
+                    : (byte)noteEvent.Velocity;
+                HandleNoteEvent(noteEvent.NoteNumber, velocity);
                 break;
-            case NoteEvent noteEvent when e.MidiEvent.CommandCode == MidiCommandCode.NoteOff:
-                HandleNoteEvent(noteEvent.NoteNumber, 0);
-                break;
+            }
             case ControlChangeEvent controlChange:
                 HandleControlChange((int)controlChange.Controller, (byte)controlChange.ControllerValue);
                 break;
