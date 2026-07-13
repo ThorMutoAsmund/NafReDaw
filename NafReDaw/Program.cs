@@ -1,5 +1,4 @@
-﻿
-using NafMidi;
+﻿using NafMidi;
 using NafAudio;
 using System.Diagnostics;
 using System.Text.Json;
@@ -30,8 +29,8 @@ internal class Program
         }
         else
         {
-            launchpad = CreateLaunchPadDevice();
-            ApplyAudioDevice(project, audioEngine);
+            CreateLaunchPadDevice();
+            ApplyAudioDevice();
             RefreshLaunchpad();
         }
 
@@ -85,9 +84,7 @@ internal class Program
                                 outputDeviceIndex = index;
                             }
 
-                            launchpad.Stop();
-                            launchpad.Dispose();
-                            launchpad = CreateLaunchPadDevice(
+                            CreateLaunchPadDevice(
                                 inputDeviceIndex: inputDeviceIndex,
                                 outputDeviceIndex: outputDeviceIndex);
                             RefreshLaunchpad();
@@ -133,6 +130,23 @@ internal class Program
                             }
 
                             AddSample(note, parameters[1]);
+                            break;
+                        }
+                    case "remove" when parameters.Length > 0:
+                    case "r" when parameters.Length > 0:
+                        {
+                            if (!TryParseNote(parameters[0], out var note))
+                            {
+                                Console.WriteLine($"Illegal note {parameters[0]}");
+                                break;
+                            }
+                            if (!LaunchpadLayout.IsGridNote(note))
+                            {
+                                Console.WriteLine($"Note 0x{note:X2} is not a launchpad grid note.");
+                                break;
+                            }
+
+                            RemoveSample(note);
                             break;
                         }
                     case "s":
@@ -184,39 +198,39 @@ internal class Program
                             project.AudioRecordingDeviceId = recordingId;
                             project.ChangesMade = true;
 
-                            ApplyAudioDevice(project, audioEngine);
+                            ApplyAudioDevice();
                             break;
                         }
-                    case "clr":
-                    case "clear":
+                    case "cls":
                         {
-                            launchpad.ClearAll();
+                            //launchpad.ClearAll();
+                            RefreshLaunchpad();
                             break;
                         }
-                    case "p" when parameters.Length > 1:
+                    case "p" when parameters.Length >= 1:
                         {
-                            if (!Int32.TryParse(parameters[0], out var row))
+                            if (!TryParseNote(parameters[0], out var note))
                             {
-                                Console.WriteLine($"Illegal row {parameters[0]}");
+                                Console.WriteLine($"Illegal note {parameters[0]}");
                                 break;
                             }
-                            if (!Int32.TryParse(parameters[1], out var column))
+                            if (!LaunchpadLayout.IsGridNote(note))
                             {
-                                Console.WriteLine($"Illegal column {parameters[1]}");
+                                Console.WriteLine($"Note 0x{note:X2} is not a launchpad grid note.");
                                 break;
                             }
-                            
+
                             var color = LaunchpadColors.Off;
-                            if (parameters.Length > 2)
+                            if (parameters.Length > 1)
                             {
-                                if (!TryParseLaunchpadColor(parameters[2], out color))
+                                if (!TryParseLaunchpadColor(parameters[1], out color))
                                 {
-                                    Console.WriteLine($"Illegal color {parameters[2]}");
+                                    Console.WriteLine($"Illegal color {parameters[1]}");
                                     break;
                                 }
                             }
 
-                            launchpad.SetPad(row, column, color);
+                            launchpad.SetPad(note, color);
                             break;
                         }
                 }
@@ -263,11 +277,17 @@ internal class Program
         }
     }
 
-    static LaunchpadDevice CreateLaunchPadDevice(
+    static void CreateLaunchPadDevice(
         int inputDeviceIndex = 0,
         int outputDeviceIndex = 0)
     {
-        var launchpad = new LaunchpadDevice();
+        if (launchpad != null)
+        {
+            launchpad.Stop();
+            launchpad.Dispose();
+        }
+
+        launchpad = new LaunchpadDevice();
 
         launchpad.PadPressed += (_, e) => HandleNoteButton(e);        
         launchpad.SideButtonPressed += (_, e) => HandleSideButton(e);
@@ -277,8 +297,6 @@ internal class Program
         var inputName = LaunchpadDevice.ListInputDevices().FirstOrDefault(d => d.Index == inputDeviceIndex)?.Name ?? "<none>";
         var outputName = LaunchpadDevice.ListOutputDevices().FirstOrDefault(d => d.Index == outputDeviceIndex)?.Name ?? "<none>";
         Console.WriteLine($"MIDI devices connected (input '{inputName}', output '{outputName}')");
-
-        return launchpad;
     }
 
     //static void SyncSession(DawProject project, ModeHolder mode, LaunchpadDevice launchpad)
@@ -290,16 +308,13 @@ internal class Program
 
     static void ApplyProject()
     {
-        launchpad?.Stop();
-        launchpad?.Dispose();
-
-        launchpad = CreateLaunchPadDevice(
+        CreateLaunchPadDevice(
             inputDeviceIndex: project.MidiInputDeviceIndex,
             outputDeviceIndex: project.MidiOutputDeviceIndex
         );
 
-        ApplyAudioDevice(project, audioEngine);
-        LoadSamplesIntoMemory(project);
+        ApplyAudioDevice();
+        LoadSamplesIntoMemory();
         RefreshLaunchpad();        
     }
 
@@ -346,7 +361,7 @@ internal class Program
         launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, mode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
     }
 
-    static void ApplyAudioDevice(DawProject project, AsioSampleEngine audioEngine)
+    static void ApplyAudioDevice()
     {
         audioEngine.Stop();
         audioEngine.PlaybackDeviceId = project.AudioPlaybackDeviceId;
@@ -380,7 +395,7 @@ internal class Program
     }
 
 
-    static void LoadSamplesIntoMemory(DawProject project)
+    static void LoadSamplesIntoMemory()
     {
         var baseFolder = GetSamplesFolder(project);
         foreach (var sample in project.LoadedSamples)
@@ -494,15 +509,54 @@ internal class Program
         Console.WriteLine($"Assigned '{destFileName}' to note 0x{note:X2}.");
     }
 
+    static void RemoveSample(byte note)
+    {
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+        if (sample is null)
+        {
+            Console.WriteLine($"No sample assigned to note 0x{note:X2}.");
+            return;
+        }
+
+        project.LoadedSamples.Remove(sample);
+        project.ChangesMade = true;
+        RefreshLaunchpad();
+        Console.WriteLine($"Removed sample from note 0x{note:X2}.");
+    }
+
     static bool TryParseNote(string text, out byte note)
     {
         note = 0;
 
         if (string.IsNullOrWhiteSpace(text))
+        {
             return false;
+        }
+
+        var commaIndex = text.IndexOf(',');
+        if (commaIndex >= 0)
+        {
+            var columnText = text[..commaIndex].Trim();
+            var rowText = text[(commaIndex + 1)..].Trim();
+
+            if (!int.TryParse(columnText, out var column) || !int.TryParse(rowText, out var row))
+            {
+                return false;
+            }
+
+            if (row < 0 || row >= LaunchpadLayout.GridRows || column < 0 || column >= LaunchpadLayout.GridColumns)
+            {
+                return false;
+            }
+
+            note = (byte)LaunchpadLayout.NoteFromGrid(row, column);
+            return true;
+        }
 
         if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
             return byte.TryParse(text.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out note);
+        }
 
         return byte.TryParse(text, out note);
     }
