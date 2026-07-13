@@ -357,6 +357,7 @@ internal class Program
 
     static void SetMode(DawMode newMode)
     {
+        audioEngine.StopAllPlayback();
         mode = newMode;
         Console.WriteLine($"Mode: {mode}");
         RefreshLaunchpad();
@@ -371,25 +372,16 @@ internal class Program
 
         try
         {
-            var skipPlay = false;
             if (currentlyPlayingSampleHandle != -1)
             {
                 audioEngine.StopPlayback(currentlyPlayingSampleHandle);
-                skipPlay = currentlyPlayingNote == sample.Note;
             }
-            if (!skipPlay)
+            currentlyPlayingNote = sample.Note;
+            currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, () =>
             {
-                currentlyPlayingNote = sample.Note;
-                currentlyPlayingSampleHandle = audioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, () =>
-                {
-                    currentlyPlayingSampleHandle = -1;
-                    currentlyPlayingNote = -1;
-                });
-            }
-            else
-            {
+                currentlyPlayingSampleHandle = -1;
                 currentlyPlayingNote = -1;
-            }
+            });
         }
         catch (Exception ex)
         {
@@ -575,8 +567,8 @@ internal class Program
         var commaIndex = text.IndexOf(',');
         if (commaIndex >= 0)
         {
-            var columnText = text[..commaIndex].Trim();
-            var rowText = text[(commaIndex + 1)..].Trim();
+            var rowText = text[..commaIndex].Trim();
+            var columnText = text[(commaIndex + 1)..].Trim();
 
             if (!int.TryParse(columnText, out var column) || !int.TryParse(rowText, out var row))
             {
