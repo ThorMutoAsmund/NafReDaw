@@ -14,7 +14,7 @@ public static class App
     public static DawProject Project { get; set; } = new DawProject();
     public static LaunchpadDevice Launchpad { get; set; } = null!;
     public static DawMode DawMode { get; set; } = DawMode.Play;
-    public static SubMode SubMode { get; set; } = SubMode.Play;
+    public static SubMode SubMode { get; set; } = SubMode.Playing;
     public static EditTool EditTool { get; set; } = EditTool.None;
     public static AsioSampleEngine AudioEngine { get; set; } = new AsioSampleEngine();
     public static int CurrentlyPlayingSampleHandle { get; set; } = -1;

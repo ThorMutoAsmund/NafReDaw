@@ -9,10 +9,10 @@ public enum DawMode
 
 public enum SubMode
 {
-    Play,
-    Record,
-    Edit,
-    Arrange
+    Playing,
+    Recording,
+    Editing,
+    Arranging
 }
 
 public enum EditTool

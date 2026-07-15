@@ -1,7 +1,6 @@
-﻿using NafMidi;
-using NafAudio;
+﻿using NafAudio;
+using NafMidi;
 using System.Diagnostics;
-using System.Text.Json;
 
 namespace NafReDaw;
 
@@ -19,7 +18,7 @@ internal class Program
         var defaultProjectPath = new DirectoryInfo(Directory.GetCurrentDirectory()).Name + App.ProjectFileExtension;
         if (File.Exists(defaultProjectPath))
         {
-            App.Project = FileSystem.LoadProject(defaultProjectPath) ?? App.Project;
+            App.Project = Project.LoadProject(defaultProjectPath) ?? App.Project;
             ApplyProject();
         }
         else
@@ -114,21 +113,21 @@ internal class Program
                     case "l":
                     case "load":
                         {
-                            App.Project = FileSystem.LoadProject(parameters.Length > 0 ? parameters[0] : null) ?? App.Project;
+                            App.Project = Project.LoadProject(parameters.Length > 0 ? parameters[0] : null) ?? App.Project;
                             ApplyProject();
                             break;
                         }
                     case "sample" when parameters.Length > 1:
                     case "s" when parameters.Length > 1:
                         {
-                            if (!TryParseNote(parameters[0], out var note))
+                            if (!Helpers.TryParseNote(parameters[0], out var note))
                             {
                                 App.Output($"Illegal note {parameters[0]}");
                                 break;
                             }
                             if (!LaunchpadLayout.IsGridNote(note))
                             {
-                                App.Output($"Note 0x{note:X2} is not a App.Launchpad grid note.");
+                                App.Output($"Note 0x{note:X2} is not a launchpad grid note.");
                                 break;
                             }
 
@@ -141,14 +140,14 @@ internal class Program
                     case "remove" when parameters.Length > 0:
                     case "r" when parameters.Length > 0:
                         {
-                            if (!TryParseNote(parameters[0], out var note))
+                            if (!Helpers.TryParseNote(parameters[0], out var note))
                             {
                                 App.Output($"Illegal note {parameters[0]}");
                                 break;
                             }
                             if (!LaunchpadLayout.IsGridNote(note))
                             {
-                                App.Output($"Note 0x{note:X2} is not a App.Launchpad grid note.");
+                                App.Output($"Note 0x{note:X2} is not a launchpad grid note.");
                                 break;
                             }
 
@@ -161,13 +160,13 @@ internal class Program
                     case "s":
                     case "save":
                         {
-                            FileSystem.SaveProject(parameters.Length > 0 ? parameters[0] : null);
+                            Project.SaveProject(parameters.Length > 0 ? parameters[0] : null);
                             break;
                         }
                     case "dir":
                     case "ls":
                         {
-                            FileSystem.Dir(parameters.Length > 0 ? parameters[0] : null);
+                            Project.Dir(parameters.Length > 0 ? parameters[0] : null);
                             break;
                         }
                     case "a" when parameters.Length == 0:
@@ -218,14 +217,14 @@ internal class Program
                         }
                     case "p" when parameters.Length >= 1:
                         {
-                            if (!TryParseNote(parameters[0], out var note))
+                            if (!Helpers.TryParseNote(parameters[0], out var note))
                             {
                                 App.Output($"Illegal note {parameters[0]}");
                                 break;
                             }
                             if (!LaunchpadLayout.IsGridNote(note))
                             {
-                                App.Output($"Note 0x{note:X2} is not a App.Launchpad grid note.");
+                                App.Output($"Note 0x{note:X2} is not a launchpad grid note.");
                                 break;
                             }
 
@@ -280,7 +279,7 @@ internal class Program
                     return true;
                 case "s":
                 case "save":
-                    FileSystem.SaveProject();
+                    Project.SaveProject();
                     return true;
             }
         }
@@ -321,13 +320,13 @@ internal class Program
                 }
             }
 
-            if (App.SubMode == SubMode.Edit && loadedSample is not null)
+            if (App.SubMode == SubMode.Editing && loadedSample is not null)
             {
                 App.CurrentlySelectedNote = e.NoteNumber;
                 App.Debug($"Editing note 0x{App.CurrentlySelectedNote:X2}");
                 RefreshLaunchpad();
             }
-            else if (App.SubMode == SubMode.Record && loadedSample is null)
+            else if (App.SubMode == SubMode.Recording && loadedSample is null)
             {
                 App.CurrentlySelectedNote = App.CurrentlySelectedNote == e.NoteNumber ? -1 : e.NoteNumber;
                 if (App.CurrentlySelectedNote != -1)
@@ -347,40 +346,40 @@ internal class Program
         {
             case LaunchpadLayout.SessionButtonCc:
                 {
-                    SetDawMode(DawMode.Play, SubMode.Play);
+                    SetDawMode(DawMode.Play, SubMode.Playing);
                     break;
                 }
             case LaunchpadLayout.NoteButtonCc:
                 {
-                    SetDawMode(DawMode.Edit, SubMode.Edit, EditTool.None);
+                    SetDawMode(DawMode.Edit, SubMode.Editing, EditTool.None);
                     break;
                 }
             case LaunchpadLayout.DeviceButtonCc:
                 {
-                    SetDawMode(DawMode.Arrange, SubMode.Arrange);
+                    SetDawMode(DawMode.Arrange, SubMode.Arranging);
                     break;
                 }
             case LaunchpadLayout.RecordArmButtonCc when App.DawMode == DawMode.Edit:
                 {
-                    SetSubMode(SubMode.Record);
+                    SetSubMode(SubMode.Recording);
                     break;
                 }
             case LaunchpadLayout.TrackSelectButtonCc when App.DawMode == DawMode.Edit:
                 {
-                    SetSubMode(SubMode.Edit);
+                    SetSubMode(SubMode.Editing);
                     break;
                 }
-            case LaunchpadLayout.Row0ButtonCc when App.SubMode == SubMode.Edit:
+            case LaunchpadLayout.Row0ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     SetEditTool(App.EditTool == EditTool.Start ? EditTool.None : EditTool.Start);
                     break;
                 }
-            case LaunchpadLayout.Row1ButtonCc when App.SubMode == SubMode.Edit:
+            case LaunchpadLayout.Row1ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     SetEditTool(App.EditTool == EditTool.End ? EditTool.None : EditTool.End);
                     break;
                 }
-            case LaunchpadLayout.Row7ButtonCc when App.SubMode == SubMode.Edit:
+            case LaunchpadLayout.Row7ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     if (AudioSystem.ToggleLoop())
                     {
@@ -389,7 +388,7 @@ internal class Program
 
                     break;
                 }
-            case LaunchpadLayout.RecordButtonCc when App.SubMode == SubMode.Record:
+            case LaunchpadLayout.RecordButtonCc when App.SubMode == SubMode.Recording:
                 {
                     ToggleSamplingRecording();
 
@@ -401,7 +400,7 @@ internal class Program
                     RefreshLaunchpad();
                     break;
                 }
-            case LaunchpadLayout.UpButtonCc when App.SubMode == SubMode.Edit && App.CurrentlySelectedNote != -1:
+            case LaunchpadLayout.UpButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
@@ -411,7 +410,7 @@ internal class Program
                     }
                     break;
                 }
-            case LaunchpadLayout.DownButtonCc when App.SubMode == SubMode.Edit && App.CurrentlySelectedNote != -1:
+            case LaunchpadLayout.DownButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
@@ -421,7 +420,7 @@ internal class Program
                     }
                     break;
                 }
-            case LaunchpadLayout.RightButtonCc when App.SubMode == SubMode.Edit && App.CurrentlySelectedNote != -1:
+            case LaunchpadLayout.RightButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
@@ -431,7 +430,7 @@ internal class Program
                     }
                     break;
                 }
-            case LaunchpadLayout.LeftButtonCc when App.SubMode == SubMode.Edit && App.CurrentlySelectedNote != -1:
+            case LaunchpadLayout.LeftButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
@@ -522,7 +521,7 @@ internal class Program
 
     static byte GetPadColorForNote(int note)
     {
-        if (App.CurrentlySelectedNote == note && App.SubMode == SubMode.Record)
+        if (App.CurrentlySelectedNote == note && App.SubMode == SubMode.Recording)
         {
             return LaunchpadColors.Red;
         }
@@ -532,7 +531,7 @@ internal class Program
             return LaunchpadColors.Off;
         }
 
-        if (App.CurrentlySelectedNote == note && App.SubMode == SubMode.Edit)
+        if (App.CurrentlySelectedNote == note && App.SubMode == SubMode.Editing)
         {
             return LaunchpadColors.Blue;
         }
@@ -581,54 +580,17 @@ internal class Program
         App.Launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, App.DawMode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
 
         // Refresh edit buttons
-        App.Launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, App.SubMode == SubMode.Record  ? LaunchpadColors.Red : LaunchpadColors.Off);
-        App.Launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc, App.SubMode == SubMode.Edit ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, App.SubMode == SubMode.Recording  ? LaunchpadColors.Red : LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc, App.SubMode == SubMode.Editing ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
 
         // Refresh record button
         App.Launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, App.AudioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
 
         // Refresh tool button
         var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.SubMode == SubMode.Edit && App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.SubMode == SubMode.Edit && App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, App.SubMode == SubMode.Edit && sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-    }
-
-    static bool TryParseNote(string text, out byte note)
-    {
-        note = 0;
-
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return false;
-        }
-
-        var commaIndex = text.IndexOf(',');
-        if (commaIndex >= 0)
-        {
-            var rowText = text[..commaIndex].Trim();
-            var columnText = text[(commaIndex + 1)..].Trim();
-
-            if (!int.TryParse(columnText, out var column) || !int.TryParse(rowText, out var row))
-            {
-                return false;
-            }
-
-            if (row < 0 || row >= LaunchpadLayout.GridRows || column < 0 || column >= LaunchpadLayout.GridColumns)
-            {
-                return false;
-            }
-
-            note = (byte)LaunchpadLayout.NoteFromGrid(row, column);
-            return true;
-        }
-
-        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            return byte.TryParse(text.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out note);
-        }
-
-        return byte.TryParse(text, out note);
+        App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.SubMode == SubMode.Editing && App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.SubMode == SubMode.Editing && App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, App.SubMode == SubMode.Editing && sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
     }
 
     static bool TryParseLaunchpadColor(string text, out byte color)

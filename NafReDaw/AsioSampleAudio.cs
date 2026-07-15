@@ -31,7 +31,6 @@
 //   engine.SaveCapture(@"C:\audio\recording.wav");
 //   engine.StopInputMonitoring();
 
-using System.Collections.Generic;
 using NAudio.Utils;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;

@@ -1,7 +1,7 @@
-﻿namespace NafReDaw;
-
-using NafAudio;
+﻿using NafAudio;
 using System.Text.Json.Serialization;
+
+namespace NafReDaw;
 
 public class LoadedSample
 {

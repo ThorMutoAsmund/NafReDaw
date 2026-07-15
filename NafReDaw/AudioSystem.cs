@@ -1,10 +1,4 @@
 ﻿using NafAudio;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace NafReDaw;
 
@@ -229,7 +223,7 @@ public static class AudioSystem
             App.CurrentlyPlayingNote = -1;
             App.Output($"Failed to play sample '{sample.FileName}': {ex.Message}");
 
-            return true;
+            return false;
         }
     }
 

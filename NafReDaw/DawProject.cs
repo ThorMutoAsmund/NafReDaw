@@ -1,6 +1,6 @@
-﻿namespace NafReDaw;
+﻿using System.Text.Json.Serialization;
 
-using System.Text.Json.Serialization;
+namespace NafReDaw;
 
 public class DawProject
 {
