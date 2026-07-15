@@ -487,8 +487,12 @@ internal class Program
 
     static void SetSubMode(SubMode newMode, EditTool? newEditTool = null)
     {
-        subMode = newMode;
-        Console.WriteLine($"Edit mode: {subMode}");
+        if (subMode != newMode)
+        {
+            subMode = newMode;
+            currentlySelectedNote = -1;
+            Console.WriteLine($"Edit mode: {subMode}");
+        }
 
         if (newEditTool.HasValue)
         {
@@ -500,8 +504,11 @@ internal class Program
 
     static void SetEditTool(EditTool newEditTool)
     {
-        editTool = newEditTool;
-        Console.WriteLine($"Tool: {editTool}");
+        if (editTool != newEditTool)
+        {
+            editTool = newEditTool;
+            Console.WriteLine($"Tool: {editTool}");
+        }
         RefreshLaunchpad();
     }
 
@@ -590,6 +597,7 @@ internal class Program
         AssignSampleFromPath(note, destPath);
         var sample = project.LoadedSamples.First(s => s.Note == note);
         sample.Loop = false;
+        currentlySelectedNote = -1;
         project.ChangesMade = true;
         RefreshLaunchpad();
         Console.WriteLine($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
@@ -857,13 +865,14 @@ internal class Program
         launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, subMode == SubMode.Record  ? LaunchpadColors.Red : LaunchpadColors.Off);
         launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc, subMode == SubMode.Edit ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
 
+        // Refresh record button
         launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, audioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
 
+        // Refresh tool button
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlySelectedNote);
         launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, subMode == SubMode.Edit && editTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
         launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, subMode == SubMode.Edit && editTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-
-        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlySelectedNote);
-        launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, subMode == SubMode.Edit && sample is not null && sample.Loop ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, subMode == SubMode.Edit && sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
     }
 
     static void AddSample(byte note, string sourceFile)
