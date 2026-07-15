@@ -61,8 +61,9 @@ public static class LaunchpadLayout
     public const int SendsButtonCc = 0x07;
     public const int StopClipButtonCc = 0x08;
     public const int RecordButtonCc = 0x0A;
-    public const int UndoButtonCc = 0x3C;
-    public const int ClickButtonCc = 0x46;
+    public const int UndoButtonCc = 0x3C; //60
+    public const int ClickButtonCc = 0x46; //70
+    public const int ShiftButtonCc = 0x50; //80
     public const int UpButtonCc = 0x5B;
     public const int DownButtonCc = 0x5C;
     public const int LeftButtonCc = 0x5D;
@@ -71,6 +72,15 @@ public static class LaunchpadLayout
     public const int NoteButtonCc = 0x60;
     public const int DeviceButtonCc = 0x61;
     public const int UserButtonCc = 0x62;
+
+    public const int Row0ButtonCc = 0x59;
+    public const int Row1ButtonCc = 0x59 - 10;
+    public const int Row2ButtonCc = 0x59 - 20;
+    public const int Row3ButtonCc = 0x59 - 30;
+    public const int Row4ButtonCc = 0x59 - 40;
+    public const int Row5ButtonCc = 0x59 - 50;
+    public const int Row6ButtonCc = 0x59 - 60;
+    public const int Row7ButtonCc = 0x59 - 70;
 
 
     /// <summary>CC for the round side button beside grid row <paramref name="row"/> (0–7).</summary>

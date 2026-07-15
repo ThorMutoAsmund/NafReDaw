@@ -3,12 +3,24 @@ namespace NafReDaw;
 public enum DawMode
 {
     Play,
-    Record,
+    Edit,
     Arrange
 }
 
-public enum SampleEditMode
+public enum SubMode
 {
+    Play,
+    Record,
+    Edit,
+    Arrange
+}
+
+public enum EditTool
+{
+    None,
+    Record,
     Start,
     End
+    
 }
+

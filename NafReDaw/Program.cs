@@ -10,16 +10,13 @@ internal class Program
     private const string DebugProjcetFolder = "C:\\Users\\thora\\Google Drive\\Music\\NafDaw\\Debug";
     private static DawProject project = new DawProject();
     private static LaunchpadDevice launchpad = null!;
-    private static DawMode mode = DawMode.Play;
-    private static SampleEditMode editMode = SampleEditMode.Start;
+    private static DawMode dawMode = DawMode.Play;
+    private static SubMode subMode = SubMode.Play;
+    private static EditTool editTool = EditTool.None;
     private static AsioSampleEngine audioEngine = new AsioSampleEngine();
     private static int currentlyPlayingSampleHandle = -1;
     private static int currentlyPlayingNote = -1;
-    private static int currentlyEditingNote = -1;
-    private static int currentlySamplingNote = -1;
-    private static CancellationTokenSource? padLongPressCts;
-    private static int padLongPressNote = -1;
-    private const int PadLongPressMilliseconds = 800;
+    private static int currentlySelectedNote = -1;
     private const int LongTrimSeconds = 100;
     private const int ShortTrimSeconds = 10;
 
@@ -105,17 +102,17 @@ internal class Program
                         }
                     case "play":
                         {
-                            SetMode(DawMode.Play);
+                            SetDawMode(DawMode.Play);
                             break;
                         }
                     case "record":
                         {
-                            SetMode(DawMode.Record);
+                            SetDawMode(DawMode.Edit);
                             break;
                         }
                     case "arrange":
                         {
-                            SetMode(DawMode.Arrange);
+                            SetDawMode(DawMode.Arrange);
                             break;
                         }
                     case "l":
@@ -293,7 +290,6 @@ internal class Program
     {
         if (launchpad != null)
         {
-            CancelPadLongPressTimer();
             launchpad.Stop();
             launchpad.Dispose();
         }
@@ -330,89 +326,37 @@ internal class Program
             Console.WriteLine($"Pad {e.Row},{e.Column} note 0x{e.NoteNumber:X2}");
         }
 
-        if (mode is DawMode.Play or DawMode.Record)
+        if (dawMode is DawMode.Play or DawMode.Edit)
         {
-            if (currentlyEditingNote != e.NoteNumber && currentlyPlayingNote != e.NoteNumber)
+            if (currentlySelectedNote != e.NoteNumber && currentlyPlayingNote != e.NoteNumber)
             {
-                currentlyEditingNote = -1;
+                currentlySelectedNote = -1;
             }
-            var loaded = project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
-            if (loaded?.InMemorySample is not null)
+            var loadedSample = project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
+            if (loadedSample?.InMemorySample is not null)
             {
-                PlayLoadedSample(loaded);
-            }
-        }
-
-        CancelPadLongPressTimer();
-
-        padLongPressNote = e.NoteNumber;
-        padLongPressCts = new CancellationTokenSource();
-        var cts = padLongPressCts;
-        var note = e.NoteNumber;
-
-        _ = WaitForPadLongPressAsync(note, cts.Token);
-    }
-
-    static async Task WaitForPadLongPressAsync(int note, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(PadLongPressMilliseconds, cancellationToken);
-            
-            if (padLongPressNote != note)
-            {
-                return;
+                PlayLoadedSample(loadedSample);
             }
 
-            if (currentlyEditingNote == note)
+            if (subMode == SubMode.Edit && loadedSample is not null)
             {
-                currentlyEditingNote = -1;
-            }
-            else if (currentlySamplingNote == note)
-            {
-                currentlySamplingNote = -1;
-            }
-            else
-            {
-                var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == note);
-                if (sample is not null)
+                currentlySelectedNote = e.NoteNumber;
+                if (Debugger.IsAttached && currentlySelectedNote != -1)
                 {
-                    currentlyEditingNote = note;
-                    currentlySamplingNote = -1;
+                    Console.WriteLine($"Editing note 0x{currentlySelectedNote:X2}");
                 }
-                else
-                {
-                    currentlySamplingNote = note;
-                    currentlyEditingNote = -1;
-                }
+                RefreshLaunchpad();
             }
-
-            RefreshLaunchpad();
-            if (Debugger.IsAttached)
+            else if (subMode == SubMode.Record && loadedSample is null)
             {
-                Console.WriteLine($"Editing note 0x{note:X2}");
+                currentlySelectedNote = currentlySelectedNote == e.NoteNumber ? -1 : e.NoteNumber;
+                if (Debugger.IsAttached && currentlySelectedNote != -1)
+                {
+                    Console.WriteLine($"Arming note 0x{currentlySelectedNote:X2}");
+                }
+                RefreshLaunchpad();
             }
         }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    static void HandleNotePadReleased(LaunchpadPadEventArgs e)
-    {
-        CancelPadLongPressTimer();
-
-        if (padLongPressNote == e.NoteNumber)
-        {
-            padLongPressNote = -1;
-        }
-    }
-
-    static void CancelPadLongPressTimer()
-    {
-        padLongPressCts?.Cancel();
-        padLongPressCts?.Dispose();
-        padLongPressCts = null;
     }
 
     static void HandleSideButton(LaunchpadButtonEventArgs e)
@@ -426,84 +370,154 @@ internal class Program
         {
             case LaunchpadLayout.SessionButtonCc:
                 {
-                    SetMode(DawMode.Play);
+                    SetDawMode(DawMode.Play, SubMode.Play);
                     break;
                 }
             case LaunchpadLayout.NoteButtonCc:
                 {
-                    SetMode(DawMode.Record);
+                    SetDawMode(DawMode.Edit, SubMode.Edit, EditTool.None);
                     break;
                 }
             case LaunchpadLayout.DeviceButtonCc:
                 {
-                    SetMode(DawMode.Arrange);
+                    SetDawMode(DawMode.Arrange, SubMode.Arrange);
                     break;
                 }
-            case LaunchpadLayout.RecordArmButtonCc when currentlyEditingNote != -1:
+            case LaunchpadLayout.RecordArmButtonCc when dawMode == DawMode.Edit:
                 {
-                    SetEditMode(SampleEditMode.Start);
+                    SetSubMode(SubMode.Record);
                     break;
                 }
-            case LaunchpadLayout.TrackSelectButtonCc when currentlyEditingNote != -1:
+            case LaunchpadLayout.TrackSelectButtonCc when dawMode == DawMode.Edit:
                 {
-                    SetEditMode(SampleEditMode.End);
+                    SetSubMode(SubMode.Edit);
                     break;
                 }
-            case LaunchpadLayout.RecordButtonCc:
+            case LaunchpadLayout.Row0ButtonCc when subMode == SubMode.Edit:
                 {
-                    if (currentlySamplingNote != -1)
-                    {
-                        ToggleSamplingRecording();
-                        break;
-                    }
+                    SetEditTool(editTool == EditTool.Start ? EditTool.None : EditTool.Start);
+                    break;
+                }
+            case LaunchpadLayout.Row1ButtonCc when subMode == SubMode.Edit:
+                {
+                    SetEditTool(editTool == EditTool.End ? EditTool.None : EditTool.End);
+                    break;
+                }
+            case LaunchpadLayout.Row7ButtonCc when subMode == SubMode.Edit:
+                {
+                    ToggleLoop();
 
-                    if (currentlyEditingNote != -1)
-                    {
-                        ToggleLoop();
-                    }
+                    break;
+                }
+            case LaunchpadLayout.RecordButtonCc when subMode == SubMode.Record:
+                {
+                    ToggleSamplingRecording();
 
                     break;
                 }
-            case LaunchpadLayout.UpButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
+            case LaunchpadLayout.UndoButtonCc when audioEngine.IsRecording:
                 {
-                    TrimSample(
-                        startMilliSeconds: editMode == SampleEditMode.Start ? LongTrimSeconds : null,
-                        endMilliSeconds: editMode == SampleEditMode.End ? LongTrimSeconds : null);
+                    CancelSamplingRecording();
                     break;
                 }
-            case LaunchpadLayout.DownButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
+            case LaunchpadLayout.UpButtonCc when subMode == SubMode.Edit && currentlySelectedNote != -1:
                 {
-                    TrimSample(
-                        startMilliSeconds: editMode == SampleEditMode.Start ? -LongTrimSeconds : null,
-                        endMilliSeconds: editMode == SampleEditMode.End ? -LongTrimSeconds : null);
+                    if (editTool is EditTool.Start or EditTool.End)
+                    {
+                        TrimSample(
+                            startMilliSeconds: editTool == EditTool.Start ? LongTrimSeconds : null,
+                            endMilliSeconds: editTool == EditTool.End ? LongTrimSeconds : null);
+                    }
                     break;
                 }
-            case LaunchpadLayout.RightButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
+            case LaunchpadLayout.DownButtonCc when subMode == SubMode.Edit && currentlySelectedNote != -1:
                 {
-                    TrimSample(
-                        startMilliSeconds: editMode == SampleEditMode.Start ? ShortTrimSeconds : null,
-                        endMilliSeconds: editMode == SampleEditMode.End ? ShortTrimSeconds : null);
+                    if (editTool is EditTool.Start or EditTool.End)
+                    {
+                        TrimSample(
+                            startMilliSeconds: editTool == EditTool.Start ? -LongTrimSeconds : null,
+                            endMilliSeconds: editTool == EditTool.End ? -LongTrimSeconds : null);
+                    }
                     break;
                 }
-            case LaunchpadLayout.LeftButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
+            case LaunchpadLayout.RightButtonCc when subMode == SubMode.Edit && currentlySelectedNote != -1:
                 {
-                    TrimSample(
-                        startMilliSeconds: editMode == SampleEditMode.Start ? -ShortTrimSeconds : null,
-                        endMilliSeconds: editMode == SampleEditMode.End ? -ShortTrimSeconds : null);
+                    if (editTool is EditTool.Start or EditTool.End)
+                    {
+                        TrimSample(
+                            startMilliSeconds: editTool == EditTool.Start ? ShortTrimSeconds : null,
+                            endMilliSeconds: editTool == EditTool.End ? ShortTrimSeconds : null);
+                    }
+                    break;
+                }
+            case LaunchpadLayout.LeftButtonCc when subMode == SubMode.Edit && currentlySelectedNote != -1:
+                {
+                    if (editTool is EditTool.Start or EditTool.End)
+                    {
+                        TrimSample(
+                            startMilliSeconds: editTool == EditTool.Start ? -ShortTrimSeconds : null,
+                            endMilliSeconds: editTool == EditTool.End ? -ShortTrimSeconds : null);
+                    }
                     break;
                 }
         }
     }
 
+    static void SetDawMode(DawMode newDawMode, SubMode? newEditMode = null, EditTool? newEditTool = null)
+    {
+        audioEngine.StopAllPlayback();
+        if (audioEngine.IsRecording)
+        {
+            audioEngine.StopRecording();
+        }
+
+        currentlyPlayingSampleHandle = -1;
+        currentlyPlayingNote = -1;
+        currentlySelectedNote = -1;
+        dawMode = newDawMode;
+        Console.WriteLine($"Mode: {dawMode}");
+
+        if (newEditMode.HasValue)
+        {
+            SetSubMode(newEditMode.Value, newEditTool);
+            return;
+        }
+        RefreshLaunchpad();
+    }
+
+    static void SetSubMode(SubMode newMode, EditTool? newEditTool = null)
+    {
+        subMode = newMode;
+        Console.WriteLine($"Edit mode: {subMode}");
+
+        if (newEditTool.HasValue)
+        {
+            SetEditTool(newEditTool.Value);
+            return;
+        }
+        RefreshLaunchpad();
+    }
+
+    static void SetEditTool(EditTool newEditTool)
+    {
+        editTool = newEditTool;
+        Console.WriteLine($"Tool: {editTool}");
+        RefreshLaunchpad();
+    }
+
+
+    static void HandleNotePadReleased(LaunchpadPadEventArgs e)
+    {
+    }
 
     static void ToggleLoop()
     {
-        if (currentlyEditingNote == -1)
+        if (currentlySelectedNote == -1)
         {
             return;
         }
 
-        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlyEditingNote);
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlySelectedNote);
         if (sample is null)
         {
             return;
@@ -515,13 +529,13 @@ internal class Program
 
         if (Debugger.IsAttached)
         {
-            Console.WriteLine($"Loop note 0x{currentlyEditingNote:X2}: {sample.Loop}");
+            Console.WriteLine($"Loop note 0x{currentlySelectedNote:X2}: {sample.Loop}");
         }
     }
 
     static void ToggleSamplingRecording()
     {
-        if (currentlySamplingNote == -1)
+        if (currentlySelectedNote == -1)
         {
             return;
         }
@@ -542,7 +556,7 @@ internal class Program
         {
             audioEngine.StartRecording();
             RefreshLaunchpad();
-            Console.WriteLine($"Recording for note 0x{currentlySamplingNote:X2}...");
+            Console.WriteLine($"Recording for note 0x{currentlySelectedNote:X2}...");
         }
         catch (Exception ex)
         {
@@ -554,7 +568,7 @@ internal class Program
     {
         var samplesFolder = GetSamplesFolder(project);
         var destPath = GetUniqueRecordingPath(samplesFolder);
-        var note = (byte)currentlySamplingNote;
+        var note = (byte)currentlySelectedNote;
 
         try
         {
@@ -577,9 +591,15 @@ internal class Program
         var sample = project.LoadedSamples.First(s => s.Note == note);
         sample.Loop = false;
         project.ChangesMade = true;
-        currentlySamplingNote = -1;
         RefreshLaunchpad();
         Console.WriteLine($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
+    }
+
+    static void CancelSamplingRecording()
+    {
+        audioEngine.StopRecording();
+        RefreshLaunchpad();
+        Console.WriteLine("Recording cancelled.");
     }
 
     static string GetUniqueRecordingPath(string samplesFolder)
@@ -625,12 +645,12 @@ internal class Program
 
     static void TrimSample(int? startMilliSeconds = null, int? endMilliSeconds = null)
     {
-        if (currentlyEditingNote == -1)
+        if (currentlySelectedNote == -1)
         {
             return;
         }
 
-        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlyEditingNote);
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlySelectedNote);
         if (sample?.InMemorySample is null)
         {
             return;
@@ -672,32 +692,8 @@ internal class Program
 
         if (Debugger.IsAttached)
         {
-            Console.WriteLine($"Trim note 0x{currentlyEditingNote:X2}: start={sample.StartSample}, end={sample.EndSample} ({totalSamples} samples)");
+            Console.WriteLine($"Trim note 0x{currentlySelectedNote:X2}: start={sample.StartSample}, end={sample.EndSample} ({totalSamples} samples)");
         }
-    }
-
-    static void SetMode(DawMode newMode)
-    {
-        audioEngine.StopAllPlayback();
-        if (audioEngine.IsRecording)
-        {
-            audioEngine.StopRecording();
-        }
-
-        currentlyPlayingSampleHandle = -1;
-        currentlyPlayingNote = -1;
-        currentlyEditingNote = -1;
-        currentlySamplingNote = -1;
-        mode = newMode;
-        Console.WriteLine($"Mode: {mode}");
-        RefreshLaunchpad();
-    }
-
-    static void SetEditMode(SampleEditMode newMode)
-    {
-        editMode = newMode;
-        Console.WriteLine($"Edit mode: {mode}");
-        RefreshLaunchpad();
     }
 
     static void PlayLoadedSample(LoadedSample sample)
@@ -742,7 +738,7 @@ internal class Program
 
     static byte GetPadColorForNote(int note)
     {
-        if (currentlySamplingNote == note && mode is DawMode.Play or DawMode.Record)
+        if (currentlySelectedNote == note && subMode == SubMode.Record)
         {
             return LaunchpadColors.Red;
         }
@@ -752,12 +748,12 @@ internal class Program
             return LaunchpadColors.Off;
         }
 
-        if (currentlyEditingNote == note && mode is DawMode.Play or DawMode.Record)
+        if (currentlySelectedNote == note && subMode == SubMode.Edit)
         {
             return LaunchpadColors.Blue;
         }
 
-        if (currentlyPlayingNote == note && mode is DawMode.Play or DawMode.Record)
+        if (currentlyPlayingNote == note)
         {
             return LaunchpadColors.GreenBright;
         }
@@ -853,18 +849,21 @@ internal class Program
         }
 
         // Refresh mode buttons
-        launchpad.SetSideButton(LaunchpadLayout.SessionButtonCc, mode == DawMode.Play ? LaunchpadColors.Green : LaunchpadColors.Off);
-        launchpad.SetSideButton(LaunchpadLayout.NoteButtonCc, mode == DawMode.Record ? LaunchpadColors.Red : LaunchpadColors.Off);
-        launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, mode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.SessionButtonCc, dawMode == DawMode.Play ? LaunchpadColors.Green : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.NoteButtonCc, dawMode == DawMode.Edit ? LaunchpadColors.Red : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, dawMode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
 
         // Refresh edit buttons
-        launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, 
-            currentlyEditingNote != -1 && editMode == SampleEditMode.Start ? LaunchpadColors.Green : LaunchpadColors.Off);
-        launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc,
-            currentlyEditingNote != -1 && editMode == SampleEditMode.End ? LaunchpadColors.Green : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, subMode == SubMode.Record  ? LaunchpadColors.Red : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc, subMode == SubMode.Edit ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
 
-        launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc,
-            audioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, audioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
+
+        launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, subMode == SubMode.Edit && editTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, subMode == SubMode.Edit && editTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == currentlySelectedNote);
+        launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, subMode == SubMode.Edit && sample is not null && sample.Loop ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
     }
 
     static void AddSample(byte note, string sourceFile)
