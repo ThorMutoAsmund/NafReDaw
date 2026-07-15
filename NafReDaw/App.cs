@@ -25,7 +25,12 @@ public static class App
     public static int ActivePatternIndex { get; set; }
     /// <summary>Which 8-column window of the 64-step pattern is shown on the Launchpad (0–7).</summary>
     public static int ArrangeStepPage { get; set; }
+    /// <summary>Note used to paint steps in Arrange mode (-1 = none).</summary>
+    public static int ArrangePaintNote { get; set; } = -1;
     public static bool IsShiftHeld { get; set; }
+    public static bool IsRecordHeld { get; set; }
+    /// <summary>When true, sample recordings are saved as mono (downmixed from stereo input).</summary>
+    public static bool RecordMono { get; set; }
     public static bool ChangesMade { get; set; }
 
     public static void Output(string message)

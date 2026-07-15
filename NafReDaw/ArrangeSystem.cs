@@ -4,7 +4,8 @@ namespace NafReDaw;
 
 public static class ArrangeSystem
 {
-    public const int BeatsPerPattern = 4;
+    /// <summary>Each sequencer step lasts this many beats at the arrangement BPM.</summary>
+    public const int BeatsPerStep = 4;
     public const int TrackCount = 8;
     public const int StepCount = 64;
     public const int EmptyStep = -1;
@@ -20,7 +21,7 @@ public static class ArrangeSystem
     public static Action? OnTransportTick { get; set; }
 
     public static int MsPerStep =>
-        (int)(60_000.0 * BeatsPerPattern / (App.Project.Arrangement.Bpm * StepCount));
+        (int)(60_000.0 * BeatsPerStep / App.Project.Arrangement.Bpm);
 
     public static void EnsureInitialized(Arrangement arrangement)
     {
@@ -98,7 +99,7 @@ public static class ArrangeSystem
         }
     }
 
-    public static void StartTransport()
+    public static void StartTransport(int startStep = 0)
     {
         if (IsPlaying)
         {
@@ -108,9 +109,9 @@ public static class ArrangeSystem
         EnsureInitialized(App.Project.Arrangement);
         _transportCts = new CancellationTokenSource();
         var cts = _transportCts;
-        CurrentStep = 0;
+        CurrentStep = Math.Clamp(startStep, 0, StepCount - 1);
         _ = RunTransportAsync(cts.Token);
-        App.Output($"Arrangement playing ({App.Project.Arrangement.Bpm} BPM, {MsPerStep} ms/step).");
+        App.Output($"Arrangement playing from step {CurrentStep + 1} ({App.Project.Arrangement.Bpm} BPM, {MsPerStep} ms/step).");
         NotifyTransportTick();
     }
 
@@ -132,6 +133,7 @@ public static class ArrangeSystem
         NotifyTransportTick();
     }
 
+    /// <summary>Toggle play/stop. Start begins at the first step of the visible page.</summary>
     public static void ToggleTransport()
     {
         if (IsPlaying)
@@ -140,8 +142,19 @@ public static class ArrangeSystem
         }
         else
         {
-            StartTransport();
+            StartTransport(GetVisibleStep(0));
         }
+    }
+
+    /// <summary>Starts (or restarts) playback from step 0 of the currently active pattern.</summary>
+    public static void PlayFromActivePattern()
+    {
+        if (IsPlaying)
+        {
+            StopTransport();
+        }
+
+        StartTransport(0);
     }
 
     public static bool CanSelectNextPattern
@@ -268,6 +281,38 @@ public static class ArrangeSystem
 
     public static bool IsPlayheadColumn(int column) =>
         IsPlaying && GetVisibleStep(column) == CurrentStep;
+
+    /// <summary>
+    /// Assigns <paramref name="note"/> to the visible cell, or clears it if that note is already there.
+    /// </summary>
+    public static bool PaintOrClearStep(int track, int column, int note)
+    {
+        var pattern = GetActivePattern(App.Project.Arrangement);
+        EnsurePatternInitialized(pattern);
+        if (track < 0 || track >= TrackCount || column < 0 || column >= LaunchpadLayout.GridColumns)
+        {
+            return false;
+        }
+
+        if (note == EmptyStep)
+        {
+            return false;
+        }
+
+        var step = GetVisibleStep(column);
+        if (pattern.Steps[track][step] == note)
+        {
+            pattern.Steps[track][step] = EmptyStep;
+            App.ChangesMade = true;
+            App.Debug($"Cleared step track={track} step={step}");
+            return true;
+        }
+
+        pattern.Steps[track][step] = note;
+        App.ChangesMade = true;
+        App.Debug($"Painted step track={track} step={step} note=0x{note:X2}");
+        return true;
+    }
 
     private static async Task RunTransportAsync(CancellationToken cancellationToken)
     {

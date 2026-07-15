@@ -171,6 +171,87 @@ public static class AudioSystem
         return true;
     }
 
+    /// <summary>
+    /// Sets Start/End to the first and last frames louder than <paramref name="threshold"/>.
+    /// </summary>
+    public static bool TrimSilence(float threshold = 0.002f)
+    {
+        if (App.CurrentlySelectedNote == -1)
+        {
+            return false;
+        }
+
+        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+        if (sample?.InMemorySample is null)
+        {
+            return false;
+        }
+
+        var samples = sample.InMemorySample.Samples;
+        var channels = Math.Max(1, sample.InMemorySample.WaveFormat.Channels);
+        var frameCount = samples.Length / channels;
+        if (frameCount < 1)
+        {
+            return false;
+        }
+
+        var firstFrame = -1;
+        for (var frame = 0; frame < frameCount; frame++)
+        {
+            if (FramePeak(samples, frame, channels) > threshold)
+            {
+                firstFrame = frame;
+                break;
+            }
+        }
+
+        if (firstFrame < 0)
+        {
+            App.Output("Trim silence: sample is entirely below threshold.");
+            return false;
+        }
+
+        var lastFrame = firstFrame;
+        for (var frame = frameCount - 1; frame >= firstFrame; frame--)
+        {
+            if (FramePeak(samples, frame, channels) > threshold)
+            {
+                lastFrame = frame;
+                break;
+            }
+        }
+
+        var newStart = firstFrame * channels;
+        var newEnd = (lastFrame + 1) * channels;
+        if (newStart == sample.StartSample && newEnd == sample.EndSample)
+        {
+            return false;
+        }
+
+        sample.StartSample = newStart;
+        sample.EndSample = newEnd;
+        App.ChangesMade = true;
+
+        App.Output($"Trimmed silence note 0x{App.CurrentlySelectedNote:X2}: start={newStart}, end={newEnd}");
+        return true;
+    }
+
+    private static float FramePeak(float[] samples, int frame, int channels)
+    {
+        var peak = 0f;
+        var offset = frame * channels;
+        for (var ch = 0; ch < channels; ch++)
+        {
+            var value = Math.Abs(samples[offset + ch]);
+            if (value > peak)
+            {
+                peak = value;
+            }
+        }
+
+        return peak;
+    }
+
     public static bool ToggleLoop()
     {
         if (App.CurrentlySelectedNote == -1)
@@ -238,11 +319,12 @@ public static class AudioSystem
                 App.CurrentlyPlayingNote = -1;
             }
 
-            var start = fromSample ?? sample.StartSample;
+            var regionStart = sample.StartSample;
+            var playbackStart = fromSample ?? regionStart;
             var handle = -1;
             handle = App.AudioEngine.PlayOneShot(
                 sample.InMemorySample,
-                start,
+                regionStart,
                 sample.EndSample,
                 sample.Loop,
                 sample.Volume,
@@ -255,7 +337,8 @@ public static class AudioSystem
                     }
 
                     onFinished();
-                });
+                },
+                playbackStart: playbackStart);
 
             if (handle == -1)
             {
@@ -295,8 +378,9 @@ public static class AudioSystem
         try
         {
             StopInputLevelMonitoring();
+            App.AudioEngine.RecordMono = App.RecordMono;
             App.AudioEngine.StartRecording();
-            App.Output($"Recording for note 0x{App.CurrentlySelectedNote:X2}...");
+            App.Output($"Recording for note 0x{App.CurrentlySelectedNote:X2} ({(App.RecordMono ? "mono" : "stereo")})...");
         }
         catch (Exception ex)
         {

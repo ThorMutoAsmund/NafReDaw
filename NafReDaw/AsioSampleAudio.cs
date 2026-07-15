@@ -361,12 +361,13 @@ public sealed class FloatArraySampleProvider : ISampleProvider
     private int? _stopAfter;
     private int _startAfter;
 
-    public FloatArraySampleProvider(float[] samples, WaveFormat waveFormat, bool loop = false, int startAfter = 0)
+    public FloatArraySampleProvider(float[] samples, WaveFormat waveFormat, bool loop = false, int startAfter = 0, int initialPosition = 0)
     {
         _samples = samples;
         WaveFormat = waveFormat;
         _loop = loop;
         _startAfter = startAfter;
+        _position = Math.Clamp(initialPosition, 0, Math.Max(0, samples.Length));
     }
 
     public event Action? Finished;
@@ -624,6 +625,10 @@ public sealed class AsioSampleEngine : IDisposable
 
     public static WaveFormat MixerWaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
     public static WaveFormat RecordingWaveFormat { get; } = new(SampleRate, 16, Channels);
+    public static WaveFormat MonoRecordingWaveFormat { get; } = new(SampleRate, 16, 1);
+
+    /// <summary>When true, <see cref="SaveRecording"/> downmixes stereo capture to a mono WAV.</summary>
+    public bool RecordMono { get; set; }
 
     private readonly AsioAudioBackend _backend = new();
     private readonly object _playbackLock = new();
@@ -705,8 +710,18 @@ public sealed class AsioSampleEngine : IDisposable
         _mixer = null;
     }
 
-    /// <summary>Plays a sample once. Returns a handle that can be passed to <see cref="StopPlayback"/>.</summary>
-    public int PlayOneShot(InMemorySample sample, int start, int end, bool loop, float volume = 1f, Action? onFinished = null)
+    /// <summary>
+    /// Plays a sample region [<paramref name="start"/>, <paramref name="end"/>).
+    /// Optional <paramref name="playbackStart"/> seeks within that region; loops always restart at <paramref name="start"/>.
+    /// </summary>
+    public int PlayOneShot(
+        InMemorySample sample,
+        int start,
+        int end,
+        bool loop,
+        float volume = 1f,
+        Action? onFinished = null,
+        int? playbackStart = null)
     {
         start = Math.Clamp(start, 0, sample.SampleCount);
         end = end > 0
@@ -722,9 +737,15 @@ public sealed class AsioSampleEngine : IDisposable
             sample.Samples :
             sample.Samples.AsSpan(start, end - start).ToArray();
 
+        var initialPosition = 0;
+        if (playbackStart is int playFrom)
+        {
+            initialPosition = Math.Clamp(playFrom - start, 0, samples.Length);
+        }
+
         EnsurePlaybackStarted();
         var handle = _nextPlaybackHandle++;
-        var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: loop);
+        var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: loop, initialPosition: initialPosition);
         raw.Finished += () =>
         {
             RemovePlayback(handle);
@@ -891,8 +912,32 @@ public sealed class AsioSampleEngine : IDisposable
             throw new InvalidOperationException("No recording data to save.");
         }
 
+        if (RecordMono)
+        {
+            data = DownmixStereoPcm16ToMono(data);
+            using var monoWriter = new WaveFileWriter(filePath, MonoRecordingWaveFormat);
+            monoWriter.Write(data, 0, data.Length);
+            return;
+        }
+
         using var writer = new WaveFileWriter(filePath, RecordingWaveFormat);
         writer.Write(data, 0, data.Length);
+    }
+
+    private static byte[] DownmixStereoPcm16ToMono(byte[] stereoPcm)
+    {
+        var frameCount = stereoPcm.Length / 4;
+        var mono = new byte[frameCount * 2];
+        for (var i = 0; i < frameCount; i++)
+        {
+            var left = BitConverter.ToInt16(stereoPcm, i * 4);
+            var right = BitConverter.ToInt16(stereoPcm, i * 4 + 2);
+            var mixed = (short)Math.Clamp((left + right) / 2, short.MinValue, short.MaxValue);
+            mono[i * 2] = (byte)(mixed & 0xFF);
+            mono[i * 2 + 1] = (byte)(mixed >> 8);
+        }
+
+        return mono;
     }
 
     /// <summary>

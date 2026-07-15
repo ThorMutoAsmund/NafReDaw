@@ -28,7 +28,8 @@ internal class Program
             MidiSystem.CreateLaunchPadDevice(
                 HandleNotePadPressed,
                 HandleNotePadReleased,
-                HandleSideButton);
+                HandleSideButton,
+                HandleSideButtonReleased);
             AudioSystem.ApplyAudioDevice();
             RefreshLaunchpad();
         }
@@ -89,6 +90,7 @@ internal class Program
                                 HandleNotePadPressed,
                                 HandleNotePadReleased,
                                 HandleSideButton,
+                                HandleSideButtonReleased,
                                 inputDeviceIndex: inputDeviceIndex,
                                 outputDeviceIndex: outputDeviceIndex);
                             RefreshLaunchpad();
@@ -299,6 +301,7 @@ internal class Program
             HandleNotePadPressed,
             HandleNotePadReleased,
             HandleSideButton,
+            HandleSideButtonReleased,
             inputDeviceIndex: App.Project.MidiInputDeviceIndex,
             outputDeviceIndex: App.Project.MidiOutputDeviceIndex
         );
@@ -340,6 +343,45 @@ internal class Program
                 RefreshLaunchpad();
             }
         }
+        else if (App.SubMode == SubMode.Arranging)
+        {
+            if (App.IsRecordHeld)
+            {
+                var loadedSample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
+                if (loadedSample is null)
+                {
+                    return;
+                }
+
+                App.ArrangePaintNote = e.NoteNumber;
+                App.Output($"Arrange paint note 0x{App.ArrangePaintNote:X2}");
+                if (loadedSample.InMemorySample is not null)
+                {
+                    AudioSystem.PlayLoadedSample(loadedSample, () => { }, replaceCurrent: true);
+                }
+
+                RefreshLaunchpad();
+                return;
+            }
+
+            if (App.ArrangePaintNote == -1)
+            {
+                return;
+            }
+
+            if (ArrangeSystem.PaintOrClearStep(e.Row, e.Column, App.ArrangePaintNote))
+            {
+                RefreshLaunchpad();
+            }
+        }
+    }
+
+    static void HandleSideButtonReleased(LaunchpadButtonEventArgs e)
+    {
+        if (e.ControllerNumber == LaunchpadLayout.RecordButtonCc && App.SubMode == SubMode.Arranging)
+        {
+            RefreshLaunchpad();
+        }
     }
 
     static void HandleSideButton(LaunchpadButtonEventArgs e)
@@ -373,6 +415,14 @@ internal class Program
                     SetSubMode(SubMode.Editing);
                     break;
                 }
+            case LaunchpadLayout.Row0ButtonCc when App.SubMode == SubMode.Recording:
+                {
+                    App.RecordMono = !App.RecordMono;
+                    App.AudioEngine.RecordMono = App.RecordMono;
+                    App.Output(App.RecordMono ? "Recording mode: mono" : "Recording mode: stereo");
+                    RefreshLaunchpad();
+                    break;
+                }
             case LaunchpadLayout.Row0ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     SetEditTool(App.EditTool == EditTool.Start ? EditTool.None : EditTool.Start);
@@ -397,6 +447,46 @@ internal class Program
 
                     break;
                 }
+            case LaunchpadLayout.QuantizeButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
+                {
+                    if (AudioSystem.TrimSilence())
+                    {
+                        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+                        if (sample?.InMemorySample is not null)
+                        {
+                            AudioSystem.PlayLoadedSample(sample, () => RefreshLaunchpad());
+                        }
+
+                        App.Launchpad.PulseSideButton(LaunchpadLayout.QuantizeButtonCc, LaunchpadColors.GreenBright);
+                        RefreshLaunchpad();
+                    }
+
+                    break;
+                }
+            case LaunchpadLayout.DeleteButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
+                {
+                    var note = (byte)App.CurrentlySelectedNote;
+                    if (App.CurrentlyPlayingNote == note)
+                    {
+                        App.AudioEngine.StopAllPlayback();
+                        App.CurrentlyPlayingSampleHandle = -1;
+                        App.CurrentlyPlayingNote = -1;
+                    }
+
+                    if (AudioSystem.RemoveSample(note))
+                    {
+                        App.CurrentlySelectedNote = -1;
+                        if (App.ArrangePaintNote == note)
+                        {
+                            App.ArrangePaintNote = -1;
+                        }
+
+                        App.Launchpad.PulseSideButton(LaunchpadLayout.DeleteButtonCc, LaunchpadColors.Red);
+                        RefreshLaunchpad();
+                    }
+
+                    break;
+                }
             case LaunchpadLayout.RecordButtonCc when App.SubMode == SubMode.Recording:
                 {
                     ToggleSamplingRecording();
@@ -409,9 +499,22 @@ internal class Program
                     RefreshLaunchpad();
                     break;
                 }
+            case LaunchpadLayout.RecordButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    RefreshLaunchpad();
+                    break;
+                }
             case LaunchpadLayout.ClickButtonCc when App.SubMode == SubMode.Arranging:
                 {
-                    ArrangeSystem.ToggleTransport();
+                    if (App.IsShiftHeld)
+                    {
+                        ArrangeSystem.PlayFromActivePattern();
+                    }
+                    else
+                    {
+                        ArrangeSystem.ToggleTransport();
+                    }
+
                     RefreshLaunchpad();
                     break;
                 }
@@ -670,6 +773,21 @@ internal class Program
     {
         if (App.SubMode == SubMode.Arranging)
         {
+            if (App.IsRecordHeld)
+            {
+                if (!App.Project.LoadedSamples.Any(s => s.Note == note))
+                {
+                    return LaunchpadColors.Off;
+                }
+
+                if (App.ArrangePaintNote == note)
+                {
+                    return LaunchpadColors.GreenBright;
+                }
+
+                return LaunchpadColors.DimWhite;
+            }
+
             var grid = LaunchpadLayout.GridFromNote(note);
             if (grid is null)
             {
@@ -751,11 +869,22 @@ internal class Program
         App.Launchpad.SetSideButton(LaunchpadLayout.DeviceButtonCc, App.DawMode == DawMode.Arrange ? LaunchpadColors.Amber : LaunchpadColors.Off);
 
         // Refresh edit buttons
-        App.Launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, App.SubMode == SubMode.Recording  ? LaunchpadColors.Red : LaunchpadColors.Off);
+        if (App.SubMode == SubMode.Recording)
+        {
+            App.Launchpad.SetSideButton(
+                LaunchpadLayout.RecordArmButtonCc,
+                App.RecordMono ? LaunchpadColors.Green : LaunchpadColors.Red);
+        }
+        else
+        {
+            App.Launchpad.SetSideButton(LaunchpadLayout.RecordArmButtonCc, LaunchpadColors.Off);
+        }
         App.Launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc, App.SubMode == SubMode.Editing ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
 
         // Refresh record button
-        App.Launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, App.AudioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
+        var recordLit = App.AudioEngine.IsRecording
+            || (App.SubMode == SubMode.Arranging && App.IsRecordHeld);
+        App.Launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, recordLit ? LaunchpadColors.Red : LaunchpadColors.Off);
 
         App.Launchpad.SetSideButton(LaunchpadLayout.UpButtonCc, LaunchpadColors.Off);
         App.Launchpad.SetSideButton(LaunchpadLayout.DownButtonCc, LaunchpadColors.Off);

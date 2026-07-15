@@ -15,7 +15,9 @@ public static class MidiSystem
         NotePadPressedDelegate notePadPressedDelegate,
         NotePadReleasedDelegate notePadReleasedDelegate,
         SideButtonDelegate sideButtonDelegate,
-        int inputDeviceIndex = 0, int outputDeviceIndex = 0)
+        SideButtonDelegate? sideButtonReleasedDelegate = null,
+        int inputDeviceIndex = 0,
+        int outputDeviceIndex = 0)
     {
         StopVuMeter();
 
@@ -28,6 +30,7 @@ public static class MidiSystem
         App.Launchpad = new LaunchpadDevice();
 
         App.IsShiftHeld = false;
+        App.IsRecordHeld = false;
         App.Launchpad.PadPressed += (_, e) => notePadPressedDelegate(e);
         App.Launchpad.PadReleased += (_, e) => notePadReleasedDelegate(e);
         App.Launchpad.SideButtonPressed += (_, e) =>
@@ -35,6 +38,11 @@ public static class MidiSystem
             if (e.ControllerNumber == LaunchpadLayout.ShiftButtonCc)
             {
                 App.IsShiftHeld = true;
+            }
+
+            if (e.ControllerNumber == LaunchpadLayout.RecordButtonCc)
+            {
+                App.IsRecordHeld = true;
             }
 
             sideButtonDelegate(e);
@@ -45,6 +53,13 @@ public static class MidiSystem
             {
                 App.IsShiftHeld = false;
             }
+
+            if (e.ControllerNumber == LaunchpadLayout.RecordButtonCc)
+            {
+                App.IsRecordHeld = false;
+            }
+
+            sideButtonReleasedDelegate?.Invoke(e);
         };
 
         App.Launchpad.Start(inputDeviceIndex: inputDeviceIndex, outputDeviceIndex: outputDeviceIndex);
