@@ -15,6 +15,8 @@ public class LoadedSample
 
     public bool Loop { get; set; }
 
+    public float Volume { get; set; } = 1f;
+
     [JsonIgnore]
     public InMemorySample? InMemorySample { get; set; }
 }

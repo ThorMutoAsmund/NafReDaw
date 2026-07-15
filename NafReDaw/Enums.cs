@@ -20,7 +20,7 @@ public enum EditTool
     None,
     Record,
     Start,
-    End
-    
+    End,
+    Volume
 }
 

@@ -435,6 +435,37 @@ public sealed class FloatArraySampleProvider : ISampleProvider
     }
 }
 
+/// <summary>Applies linear gain to an IEEE float sample stream.</summary>
+public sealed class VolumeSampleProvider : ISampleProvider
+{
+    private readonly ISampleProvider _source;
+
+    public VolumeSampleProvider(ISampleProvider source, float volume = 1f)
+    {
+        _source = source;
+        Volume = volume;
+    }
+
+    public float Volume { get; set; }
+    public WaveFormat WaveFormat => _source.WaveFormat;
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        var read = _source.Read(buffer, offset, count);
+        if (Volume == 1f)
+        {
+            return read;
+        }
+
+        for (var i = 0; i < read; i++)
+        {
+            buffer[offset + i] *= Volume;
+        }
+
+        return read;
+    }
+}
+
 /// <summary>Mixes multiple IEEE float sample providers into one output stream.</summary>
 public sealed class SmartMixingSampleProvider : ISampleProvider
 {
@@ -675,7 +706,7 @@ public sealed class AsioSampleEngine : IDisposable
     }
 
     /// <summary>Plays a sample once. Returns a handle that can be passed to <see cref="StopPlayback"/>.</summary>
-    public int PlayOneShot(InMemorySample sample, int start, int end, bool loop, Action? onFinished = null)
+    public int PlayOneShot(InMemorySample sample, int start, int end, bool loop, float volume = 1f, Action? onFinished = null)
     {
         start = Math.Clamp(start, 0, sample.SampleCount);
         end = end > 0
@@ -700,7 +731,10 @@ public sealed class AsioSampleEngine : IDisposable
             onFinished?.Invoke();
         };
 
-        var input = ToMixerFormat(raw, sample.WaveFormat);
+        var provider = volume == 1f
+            ? (ISampleProvider)raw
+            : new VolumeSampleProvider(raw, volume);
+        var input = ToMixerFormat(provider, sample.WaveFormat);
         lock (_playbackLock)
         {
             _playbacks[handle] = new PlaybackEntry(input, raw);

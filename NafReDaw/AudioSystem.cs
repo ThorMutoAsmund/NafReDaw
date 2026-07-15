@@ -191,6 +191,33 @@ public static class AudioSystem
         return true;
     }
 
+    public static bool AdjustSampleVolume(float delta)
+    {
+        if (App.CurrentlySelectedNote == -1)
+        {
+            return false;
+        }
+
+        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+        if (sample?.InMemorySample is null)
+        {
+            return false;
+        }
+
+        var newVolume = Math.Clamp(sample.Volume + delta, 0f, 1f);
+        if (newVolume == sample.Volume)
+        {
+            return false;
+        }
+
+        sample.Volume = newVolume;
+        App.Project.ChangesMade = true;
+
+        App.Debug($"Volume note 0x{App.CurrentlySelectedNote:X2}: {sample.Volume:F2}");
+
+        return true;
+    }
+
     public static bool PlayLoadedSample(LoadedSample sample, PlayOneShotFinishedDelegate onFinished, int? fromSample = null)
     {
         if (sample.InMemorySample is null)
@@ -209,7 +236,7 @@ public static class AudioSystem
 
             var start = fromSample ?? sample.StartSample;
             App.CurrentlyPlayingNote = sample.Note;
-            App.CurrentlyPlayingSampleHandle = App.AudioEngine.PlayOneShot(sample.InMemorySample, start, sample.EndSample, sample.Loop, () =>
+            App.CurrentlyPlayingSampleHandle = App.AudioEngine.PlayOneShot(sample.InMemorySample, start, sample.EndSample, sample.Loop, sample.Volume, () =>
             {
                 App.CurrentlyPlayingSampleHandle = -1;
                 App.CurrentlyPlayingNote = -1;

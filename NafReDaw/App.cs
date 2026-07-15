@@ -10,6 +10,8 @@ public static class App
     public const string DebugProjcetFolder = "C:\\Users\\thora\\Google Drive\\Music\\NafDaw\\Debug";
     public const int LongTrimSeconds = 100;
     public const int ShortTrimSeconds = 10;
+    public const float LongVolumeStep = 0.1f;
+    public const float ShortVolumeStep = 0.01f;
 
     public static DawProject Project { get; set; } = new DawProject();
     public static LaunchpadDevice Launchpad { get; set; } = null!;

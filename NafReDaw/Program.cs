@@ -376,6 +376,11 @@ internal class Program
                     SetEditTool(App.EditTool == EditTool.End ? EditTool.None : EditTool.End);
                     break;
                 }
+            case LaunchpadLayout.Row2ButtonCc when App.SubMode == SubMode.Editing:
+                {
+                    SetEditTool(App.EditTool == EditTool.Volume ? EditTool.None : EditTool.Volume);
+                    break;
+                }
             case LaunchpadLayout.Row7ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     if (AudioSystem.ToggleLoop())
@@ -405,6 +410,10 @@ internal class Program
                             startMilliSeconds: App.EditTool == EditTool.Start ? App.LongTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? App.LongTrimSeconds : null);
                     }
+                    else if (App.EditTool == EditTool.Volume)
+                    {
+                        AdjustVolumeAndReplay(App.LongVolumeStep);
+                    }
                     break;
                 }
             case LaunchpadLayout.DownButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
@@ -414,6 +423,10 @@ internal class Program
                         TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? -App.LongTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? -App.LongTrimSeconds : null);
+                    }
+                    else if (App.EditTool == EditTool.Volume)
+                    {
+                        AdjustVolumeAndReplay(-App.LongVolumeStep);
                     }
                     break;
                 }
@@ -425,6 +438,10 @@ internal class Program
                             startMilliSeconds: App.EditTool == EditTool.Start ? App.ShortTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? App.ShortTrimSeconds : null);
                     }
+                    else if (App.EditTool == EditTool.Volume)
+                    {
+                        AdjustVolumeAndReplay(App.ShortVolumeStep);
+                    }
                     break;
                 }
             case LaunchpadLayout.LeftButtonCc when App.SubMode == SubMode.Editing && App.CurrentlySelectedNote != -1:
@@ -434,6 +451,10 @@ internal class Program
                         TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? -App.ShortTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? -App.ShortTrimSeconds : null);
+                    }
+                    else if (App.EditTool == EditTool.Volume)
+                    {
+                        AdjustVolumeAndReplay(-App.ShortVolumeStep);
                     }
                     break;
                 }
@@ -466,6 +487,23 @@ internal class Program
             AudioSystem.PlayLoadedSample(sample, () => RefreshLaunchpad(), replayStart);
         }
 
+        RefreshLaunchpad();
+    }
+
+    static void AdjustVolumeAndReplay(float delta)
+    {
+        if (!AudioSystem.AdjustSampleVolume(delta))
+        {
+            return;
+        }
+
+        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+        if (sample?.InMemorySample is null)
+        {
+            return;
+        }
+
+        AudioSystem.PlayLoadedSample(sample, () => RefreshLaunchpad());
         RefreshLaunchpad();
     }
 
@@ -645,6 +683,7 @@ internal class Program
             var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(LaunchpadLayout.Row2ButtonCc, App.EditTool == EditTool.Volume ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
         }
     }
