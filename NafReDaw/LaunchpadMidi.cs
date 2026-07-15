@@ -105,10 +105,10 @@ public static class LaunchpadLayout
             return null;
         }
 
-        int offset = note - GridFirstNote;
-        int midiRow = offset / GridRowStride;
-        int row = GridRows - 1 - midiRow;
-        int column = offset % GridRowStride;
+        var offset = note - GridFirstNote;
+        var midiRow = offset / GridRowStride;
+        var row = GridRows - 1 - midiRow;
+        var column = offset % GridRowStride;
         return (row, column);
     }
 
@@ -255,7 +255,7 @@ public sealed class LaunchpadDevice : IDisposable
     public static IReadOnlyList<MidiDeviceInfo> ListInputDevices()
     {
         var list = new List<MidiDeviceInfo>(MidiIn.NumberOfDevices);
-        for (int i = 0; i < MidiIn.NumberOfDevices; i++)
+        for (var i = 0; i < MidiIn.NumberOfDevices; i++)
         {
             list.Add(new MidiDeviceInfo(i, MidiIn.DeviceInfo(i).ProductName?.Trim() ?? $"Device {i}"));
         }
@@ -266,7 +266,7 @@ public sealed class LaunchpadDevice : IDisposable
     public static IReadOnlyList<MidiDeviceInfo> ListOutputDevices()
     {
         var list = new List<MidiDeviceInfo>(MidiOut.NumberOfDevices);
-        for (int i = 0; i < MidiOut.NumberOfDevices; i++)
+        for (var i = 0; i < MidiOut.NumberOfDevices; i++)
         {
             list.Add(new MidiDeviceInfo(i, MidiOut.DeviceInfo(i).ProductName?.Trim() ?? $"Device {i}"));
         }
@@ -354,7 +354,7 @@ public sealed class LaunchpadDevice : IDisposable
     /// <summary>Marks a pad as having content; <see cref="LaunchpadPadState.Off"/> shows dim white instead of black.</summary>
     public void SetPadLoaded(int row, int column, bool loaded = true)
     {
-        int note = LaunchpadLayout.NoteFromGrid(row, column);
+        var note = LaunchpadLayout.NoteFromGrid(row, column);
         if (loaded)
         {
             _loadedPads.Add(note);
@@ -372,7 +372,7 @@ public sealed class LaunchpadDevice : IDisposable
 
     public void SetPadState(int row, int column, LaunchpadPadState state)
     {
-        int note = LaunchpadLayout.NoteFromGrid(row, column);
+        var note = LaunchpadLayout.NoteFromGrid(row, column);
         SendNoteOn(note, ColorForPadState(note, state));
     }
 
@@ -383,9 +383,9 @@ public sealed class LaunchpadDevice : IDisposable
 
     public void ClearGrid()
     {
-        for (int row = 0; row < LaunchpadLayout.GridRows; row++)
+        for (var row = 0; row < LaunchpadLayout.GridRows; row++)
         {
-            for (int col = 0; col < LaunchpadLayout.GridColumns; col++)
+            for (var col = 0; col < LaunchpadLayout.GridColumns; col++)
             {
                 ClearPad(row, col);
             }
@@ -414,14 +414,14 @@ public sealed class LaunchpadDevice : IDisposable
             return;
         }
 
-        for (int note = 0; note < 128; note++)
+        for (var note = 0; note < 128; note++)
         {
             SendNoteOn(note, 0);
         }
 
         SendControlChange(LaunchpadLayout.UndoButtonCc, 0);
         SendControlChange(LaunchpadLayout.ClickButtonCc, 0);
-        for (int row = 0; row < LaunchpadLayout.GridRows; row++)
+        for (var row = 0; row < LaunchpadLayout.GridRows; row++)
         {
             SetRowButton(row, 0);
         }
@@ -434,7 +434,7 @@ public sealed class LaunchpadDevice : IDisposable
             return;
         }
 
-        int message = (0x90 + channel) | (note << 8) | (velocity << 16);
+        var message = (0x90 + channel) | (note << 8) | (velocity << 16);
         _midiOut.Send(message);
     }
 
@@ -445,7 +445,7 @@ public sealed class LaunchpadDevice : IDisposable
             return;
         }
 
-        int message = (0xB0 + channel)
+        var message = (0xB0 + channel)
             | (Math.Clamp(controllerNumber, 0, 127) << 8)
             | (Math.Clamp((int)value, 0, 127) << 16);
         _midiOut.Send(message);
@@ -487,7 +487,7 @@ public sealed class LaunchpadDevice : IDisposable
         {
             case NoteEvent noteEvent:
             {
-                byte velocity = noteEvent.CommandCode == MidiCommandCode.NoteOff || noteEvent.Velocity == 0
+                var velocity = noteEvent.CommandCode == MidiCommandCode.NoteOff || noteEvent.Velocity == 0
                     ? (byte)0
                     : (byte)noteEvent.Velocity;
                 HandleNoteEvent(noteEvent.NoteNumber, velocity);

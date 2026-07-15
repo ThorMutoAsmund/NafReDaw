@@ -116,54 +116,59 @@ public static class AudioSystem
         }
     }
 
-    public static void TrimSample(int? startMilliSeconds = null, int? endMilliSeconds = null)
+    public static bool TrimSample(int? startMilliSeconds = null, int? endMilliSeconds = null)
     {
         if (App.CurrentlySelectedNote == -1)
         {
-            return;
+            return false;
         }
 
         var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
         if (sample?.InMemorySample is null)
         {
-            return;
+            return false;
         }
 
-        int sampleRate = sample.InMemorySample.WaveFormat.SampleRate;
-        int totalSamples = sample.InMemorySample.SampleCount;
-        int endSample = sample.EndSample > 0 ? sample.EndSample : totalSamples;
-        bool changed = false;
+        var sampleRate = sample.InMemorySample.WaveFormat.SampleRate;
+        var totalSamples = sample.InMemorySample.SampleCount;
+        var endSample = sample.EndSample > 0 ? sample.EndSample : totalSamples;
+        bool changed;
 
         if (startMilliSeconds is int startMs)
         {
-            int delta = (int)((long)startMs * sampleRate / 1000);
-            int newStart = Math.Clamp(sample.StartSample + delta, 0, endSample - 1);
-            if (newStart != sample.StartSample)
+            var delta = (int)((long)startMs * sampleRate / 1000);
+            var newStart = Math.Clamp(sample.StartSample + delta, 0, endSample - 1);
+            changed = newStart != sample.StartSample;
+            if (changed)
             {
                 sample.StartSample = newStart;
-                changed = true;
             }
         }
-
-        if (endMilliSeconds is int endMs)
+        else if (endMilliSeconds is int endMs)
         {
-            int delta = (int)((long)endMs * sampleRate / 1000);
-            int newEnd = Math.Clamp(endSample + delta, sample.StartSample + 1, totalSamples);
-            if (newEnd != endSample)
+            var delta = (int)((long)endMs * sampleRate / 1000);
+            var newEnd = Math.Clamp(endSample + delta, sample.StartSample + 1, totalSamples);
+            changed = newEnd != endSample;
+            if (changed)
             {
                 sample.EndSample = newEnd;
-                changed = true;
             }
+        }
+        else
+        {
+            return false;
         }
 
         if (!changed)
         {
-            return;
+            return false;
         }
 
         App.Project.ChangesMade = true;
 
         App.Debug($"Trim note 0x{App.CurrentlySelectedNote:X2}: start={sample.StartSample}, end={sample.EndSample} ({totalSamples} samples)");
+
+        return true;
     }
 
     public static bool ToggleLoop()
@@ -186,7 +191,7 @@ public static class AudioSystem
         return true;
     }
 
-    public static bool PlayLoadedSample(LoadedSample sample, PlayOneShotFinishedDelegate onFinished)
+    public static bool PlayLoadedSample(LoadedSample sample, PlayOneShotFinishedDelegate onFinished, int? fromSample = null)
     {
         if (sample.InMemorySample is null)
         {
@@ -202,8 +207,9 @@ public static class AudioSystem
                 App.CurrentlyPlayingNote = -1;
             }
 
+            var start = fromSample ?? sample.StartSample;
             App.CurrentlyPlayingNote = sample.Note;
-            App.CurrentlyPlayingSampleHandle = App.AudioEngine.PlayOneShot(sample.InMemorySample, sample.StartSample, sample.EndSample, sample.Loop, () =>
+            App.CurrentlyPlayingSampleHandle = App.AudioEngine.PlayOneShot(sample.InMemorySample, start, sample.EndSample, sample.Loop, () =>
             {
                 App.CurrentlyPlayingSampleHandle = -1;
                 App.CurrentlyPlayingNote = -1;
@@ -232,12 +238,14 @@ public static class AudioSystem
     {
         try
         {
+            StopInputLevelMonitoring();
             App.AudioEngine.StartRecording();
             App.Output($"Recording for note 0x{App.CurrentlySelectedNote:X2}...");
         }
         catch (Exception ex)
         {
             App.Output($"Failed to start recording: {ex.Message}");
+            StartInputLevelMonitoring();
             return false;
         }
 
@@ -257,11 +265,13 @@ public static class AudioSystem
         catch (InvalidOperationException)
         {
             App.Output("No audio recorded.");
+            StartInputLevelMonitoring();
             return;
         }
         catch (Exception ex)
         {
             App.Output($"Failed to save recording: {ex.Message}");
+            StartInputLevelMonitoring();
             return;
         }
 
@@ -271,19 +281,48 @@ public static class AudioSystem
         App.CurrentlySelectedNote = -1;
         App.Project.ChangesMade = true;
         App.Output($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
+        StartInputLevelMonitoring();
     }
 
     public static void CancelSamplingRecording()
     {
         App.AudioEngine.StopRecording();
         App.Output("Recording cancelled.");
+        StartInputLevelMonitoring();
+    }
+
+    public static void StartInputLevelMonitoring()
+    {
+        if (App.AudioEngine.IsRecording || App.AudioEngine.IsInputMonitoring)
+        {
+            return;
+        }
+
+        try
+        {
+            App.AudioEngine.StartInputMonitoring(enableMonitor: false);
+        }
+        catch (Exception ex)
+        {
+            App.Output($"Failed to start input monitoring: {ex.Message}");
+        }
+    }
+
+    public static void StopInputLevelMonitoring()
+    {
+        if (!App.AudioEngine.IsInputMonitoring || App.AudioEngine.IsRecording)
+        {
+            return;
+        }
+
+        App.AudioEngine.StopInputMonitoring();
     }
 
     private static string GetUniqueRecordingPath(string samplesFolder)
     {
         var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff");
         var path = Path.Combine(samplesFolder, $"recording_{timestamp}.wav");
-        for (int i = 1; File.Exists(path); i++)
+        for (var i = 1; File.Exists(path); i++)
         {
             path = Path.Combine(samplesFolder, $"recording_{timestamp}_{i}.wav");
         }

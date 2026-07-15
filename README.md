@@ -21,5 +21,6 @@ This repo includes project skills under [`.cursor/skills/`](.cursor/skills/).
 | Skill | Description |
 |-------|-------------|
 | [always-use-braces](.cursor/skills/always-use-braces/SKILL.md) | Requires braces on all `if`/`else`/`for`/`foreach`/`while` bodies in C# |
+| [prefer-var](.cursor/skills/prefer-var/SKILL.md) | Prefer `var` over explicit types for local variables when the type is clear |
 
-Cursor loads project skills from `.cursor/skills/<skill-name>/SKILL.md`. To follow a skill in chat, reference it by name (`always-use-braces`) or open the linked `SKILL.md` file.
+Cursor loads project skills from `.cursor/skills/<skill-name>/SKILL.md`. To follow a skill in chat, reference it by name (`always-use-braces`, `prefer-var`) or open the linked `SKILL.md` file.

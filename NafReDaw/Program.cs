@@ -173,7 +173,7 @@ internal class Program
                     case "audio" when parameters.Length == 0:
                         {
                             var drivers = AsioSampleEngine.GetDrivers();
-                            for (int i = 0; i < drivers.Count; i++)
+                            for (var i = 0; i < drivers.Count; i++)
                             {
                                 App.Output($"{i}: {drivers[i].Name}");
                             }
@@ -246,6 +246,7 @@ internal class Program
         }
         finally
         {
+            StopRecordingSubModeServices();
             App.Launchpad.Stop();
             App.Launchpad.Dispose();
             App.AudioEngine.Dispose();
@@ -307,10 +308,6 @@ internal class Program
 
         if (App.DawMode is DawMode.Play or DawMode.Edit)
         {
-            if (App.CurrentlySelectedNote != e.NoteNumber && App.CurrentlyPlayingNote != e.NoteNumber)
-            {
-                App.CurrentlySelectedNote = -1;
-            }
             var loadedSample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
             if (loadedSample?.InMemorySample is not null)
             {
@@ -404,7 +401,7 @@ internal class Program
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
-                        AudioSystem.TrimSample(
+                        TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? App.LongTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? App.LongTrimSeconds : null);
                     }
@@ -414,7 +411,7 @@ internal class Program
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
-                        AudioSystem.TrimSample(
+                        TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? -App.LongTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? -App.LongTrimSeconds : null);
                     }
@@ -424,7 +421,7 @@ internal class Program
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
-                        AudioSystem.TrimSample(
+                        TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? App.ShortTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? App.ShortTrimSeconds : null);
                     }
@@ -434,13 +431,42 @@ internal class Program
                 {
                     if (App.EditTool is EditTool.Start or EditTool.End)
                     {
-                        AudioSystem.TrimSample(
+                        TrimSampleAndReplay(
                             startMilliSeconds: App.EditTool == EditTool.Start ? -App.ShortTrimSeconds : null,
                             endMilliSeconds: App.EditTool == EditTool.End ? -App.ShortTrimSeconds : null);
                     }
                     break;
                 }
         }
+    }
+
+    static void TrimSampleAndReplay(int? startMilliSeconds, int? endMilliSeconds)
+    {
+        if (!AudioSystem.TrimSample(startMilliSeconds, endMilliSeconds))
+        {
+            return;
+        }
+
+        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+        if (sample?.InMemorySample is null)
+        {
+            return;
+        }
+
+        if (startMilliSeconds is not null)
+        {
+            AudioSystem.PlayLoadedSample(sample, () => RefreshLaunchpad());
+        }
+        else
+        {
+            var sampleRate = sample.InMemorySample.WaveFormat.SampleRate;
+            var totalSamples = sample.InMemorySample.SampleCount;
+            var end = sample.EndSample > 0 ? sample.EndSample : totalSamples;
+            var replayStart = Math.Max(sample.StartSample, end - sampleRate);
+            AudioSystem.PlayLoadedSample(sample, () => RefreshLaunchpad(), replayStart);
+        }
+
+        RefreshLaunchpad();
     }
 
     static void SetDawMode(DawMode newDawMode, SubMode? newEditMode = null, EditTool? newEditTool = null)
@@ -450,6 +476,8 @@ internal class Program
         {
             App.AudioEngine.StopRecording();
         }
+
+        StopRecordingSubModeServices();
 
         App.CurrentlyPlayingSampleHandle = -1;
         App.CurrentlyPlayingNote = -1;
@@ -467,11 +495,21 @@ internal class Program
 
     static void SetSubMode(SubMode newMode, EditTool? newEditTool = null)
     {
+        var previousMode = App.SubMode;
         if (App.SubMode != newMode)
         {
             App.SubMode = newMode;
             App.CurrentlySelectedNote = -1;
             App.Output($"Edit mode: {App.SubMode}");
+        }
+
+        if (previousMode == SubMode.Recording && newMode != SubMode.Recording)
+        {
+            StopRecordingSubModeServices();
+        }
+        else if (previousMode != SubMode.Recording && newMode == SubMode.Recording)
+        {
+            StartRecordingSubModeServices();
         }
 
         if (newEditTool.HasValue)
@@ -480,6 +518,18 @@ internal class Program
             return;
         }
         RefreshLaunchpad();
+    }
+
+    static void StartRecordingSubModeServices()
+    {
+        AudioSystem.StartInputLevelMonitoring();
+        MidiSystem.StartVuMeter();
+    }
+
+    static void StopRecordingSubModeServices()
+    {
+        MidiSystem.StopVuMeter();
+        AudioSystem.StopInputLevelMonitoring();
     }
 
     static void SetEditTool(EditTool newEditTool)
@@ -565,9 +615,9 @@ internal class Program
     static void RefreshLaunchpad()
     {
         // Refresh pad buttons
-        for (int row = 0; row < LaunchpadLayout.GridRows; row++)
+        for (var row = 0; row < LaunchpadLayout.GridRows; row++)
         {
-            for (int col = 0; col < LaunchpadLayout.GridColumns; col++)
+            for (var col = 0; col < LaunchpadLayout.GridColumns; col++)
             {
                 var note = LaunchpadLayout.NoteFromGrid(row, col);
                 App.Launchpad.SetPad(row, col, GetPadColorForNote(note));
@@ -586,11 +636,17 @@ internal class Program
         // Refresh record button
         App.Launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, App.AudioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
 
-        // Refresh tool button
-        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.SubMode == SubMode.Editing && App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.SubMode == SubMode.Editing && App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
-        App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, App.SubMode == SubMode.Editing && sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        if (App.SubMode == SubMode.Recording)
+        {
+            MidiSystem.UpdateVuMeter();
+        }
+        else if (App.SubMode == SubMode.Editing)
+        {
+            var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+            App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        }
     }
 
     static bool TryParseLaunchpadColor(string text, out byte color)

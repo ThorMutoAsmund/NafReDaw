@@ -134,7 +134,7 @@ public sealed class AsioAudioBackend : IAudioBackend
         {
             var names = AsioOut.GetDriverNames();
             var list = new List<AudioDeviceInfo>(names.Length);
-            for (int i = 0; i < names.Length; i++)
+            for (var i = 0; i < names.Length; i++)
             {
                 list.Add(new AudioDeviceInfo(names[i], names[i]));
             }
@@ -171,8 +171,8 @@ public sealed class AsioAudioBackend : IAudioBackend
 
     private static byte[] ConvertAsioInputToPcm16(AsioAudioAvailableEventArgs e)
     {
-        int channelCount = e.InputBuffers?.Length ?? 0;
-        int sampleCount = e.SamplesPerBuffer * channelCount;
+        var channelCount = e.InputBuffers?.Length ?? 0;
+        var sampleCount = e.SamplesPerBuffer * channelCount;
         if (sampleCount <= 0)
         {
             return Array.Empty<byte>();
@@ -181,9 +181,9 @@ public sealed class AsioAudioBackend : IAudioBackend
         var floats = new float[sampleCount];
         e.GetAsInterleavedSamples(floats);
         var bytes = new byte[sampleCount * 2];
-        for (int i = 0; i < sampleCount; i++)
+        for (var i = 0; i < sampleCount; i++)
         {
-            short s = (short)Math.Clamp(floats[i] * 32767, -32768, 32767);
+            var s = (short)Math.Clamp(floats[i] * 32767, -32768, 32767);
             bytes[i * 2] = (byte)(s & 0xFF);
             bytes[i * 2 + 1] = (byte)(s >> 8);
         }
@@ -377,13 +377,13 @@ public sealed class FloatArraySampleProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
-        int totalSamples = _samples.Length;
-        int read = 0;
+        var totalSamples = _samples.Length;
+        var read = 0;
 
         if (_startAfter > 0)
         {
             read = (int)Math.Min(count, _startAfter);
-            for (int i = 0; i < read; i++)
+            for (var i = 0; i < read; i++)
             {
                 buffer[offset + i] = 0;
             }
@@ -410,14 +410,14 @@ public sealed class FloatArraySampleProvider : ISampleProvider
                 _position = 0;
             }
 
-            int toRead = (int)Math.Min(count - read, totalSamples - _position);
+            var toRead = (int)Math.Min(count - read, totalSamples - _position);
             if (_stopAfter.HasValue)
             {
                 toRead = Math.Min(toRead, _stopAfter.Value);
                 _stopAfter -= toRead;
             }
 
-            for (int i = 0; i < toRead; i++)
+            for (var i = 0; i < toRead; i++)
             {
                 buffer[offset + read + i] = _samples[_position + i];
             }
@@ -507,16 +507,16 @@ public sealed class SmartMixingSampleProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
-        int num = 0;
+        var num = 0;
         _sourceBuffer = BufferHelpers.Ensure(_sourceBuffer, count);
         lock (_sources)
         {
-            for (int n = _sources.Count - 1; n >= 0; n--)
+            for (var n = _sources.Count - 1; n >= 0; n--)
             {
-                ISampleProvider source = _sources[n];
-                int samplesRead = source.Read(_sourceBuffer, 0, count);
-                int pos = offset;
-                for (int i = 0; i < samplesRead; i++)
+                var source = _sources[n];
+                var samplesRead = source.Read(_sourceBuffer, 0, count);
+                var pos = offset;
+                for (var i = 0; i < samplesRead; i++)
                 {
                     if (i >= num)
                     {
@@ -539,7 +539,7 @@ public sealed class SmartMixingSampleProvider : ISampleProvider
 
         if (ReadFully && num < count)
         {
-            for (int i = offset + num; i < offset + count; i++)
+            for (var i = offset + num; i < offset + count; i++)
             {
                 buffer[i] = 0f;
             }
@@ -569,14 +569,14 @@ public sealed class SmartMixerWaveStream : WaveStream
 
     public override int Read(byte[] buffer, int offset, int count)
     {
-        int sampleCount = count / 4;
+        var sampleCount = count / 4;
         if (sampleCount > _floatBuffer.Length)
         {
             sampleCount = _floatBuffer.Length;
         }
 
-        int samplesRead = _mixer.Read(_floatBuffer, 0, sampleCount);
-        int bytesToCopy = samplesRead * 4;
+        var samplesRead = _mixer.Read(_floatBuffer, 0, sampleCount);
+        var bytesToCopy = samplesRead * 4;
         Buffer.BlockCopy(_floatBuffer, 0, buffer, offset, bytesToCopy);
         return bytesToCopy;
     }
@@ -632,10 +632,10 @@ public sealed class AsioSampleEngine : IDisposable
         using var reader = new AudioFileReader(filePath);
         var samples = new List<float>();
         var buffer = new float[reader.WaveFormat.SampleRate * reader.WaveFormat.Channels];
-        int samplesRead;
+        var samplesRead = 0;
         while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0)
         {
-            for (int i = 0; i < samplesRead; i++)
+            for (var i = 0; i < samplesRead; i++)
             {
                 samples.Add(buffer[i]);
             }
@@ -692,7 +692,7 @@ public sealed class AsioSampleEngine : IDisposable
             sample.Samples.AsSpan(start, end - start).ToArray();
 
         EnsurePlaybackStarted();
-        int handle = _nextPlaybackHandle++;
+        var handle = _nextPlaybackHandle++;
         var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: loop);
         raw.Finished += () =>
         {
@@ -714,7 +714,7 @@ public sealed class AsioSampleEngine : IDisposable
     public int PlayLoop(InMemorySample sample, int startAfterSamples = 0, Action? onLoopRestart = null, Action? onFinished = null)
     {
         EnsurePlaybackStarted();
-        int handle = _nextPlaybackHandle++;
+        var handle = _nextPlaybackHandle++;
         var raw = new FloatArraySampleProvider(sample.Samples, sample.WaveFormat, loop: true, startAfter: startAfterSamples);
         if (onLoopRestart != null)
         {
@@ -788,6 +788,8 @@ public sealed class AsioSampleEngine : IDisposable
 
         _recordingHandler = (_, e) =>
         {
+            UpdatePeaksFromPcm16(e.Buffer, e.BytesRecorded);
+
             var buffer = e.Buffer;
             var length = e.BytesRecorded;
             if (skipRemaining > 0)
@@ -996,22 +998,7 @@ public sealed class AsioSampleEngine : IDisposable
 
     private void OnInputDataAvailable(object? sender, RecordingDataEventArgs e)
     {
-        const int bytesPerSample = 2;
-        var sampleCount = e.BytesRecorded / bytesPerSample / Channels;
-        var maxLeft = 0f;
-        var maxRight = 0f;
-
-        for (int i = 0; i < sampleCount; i++)
-        {
-            var position = i * bytesPerSample * Channels;
-            var left = Math.Abs(BitConverter.ToInt16(e.Buffer, position) / 32768f);
-            var right = Math.Abs(BitConverter.ToInt16(e.Buffer, position + 2) / 32768f);
-            if (left > maxLeft) maxLeft = left;
-            if (right > maxRight) maxRight = right;
-        }
-
-        _peakLeft = maxLeft;
-        _peakRight = maxRight;
+        UpdatePeaksFromPcm16(e.Buffer, e.BytesRecorded);
 
         if (_monitorBuffer != null)
         {
@@ -1025,6 +1012,33 @@ public sealed class AsioSampleEngine : IDisposable
                 _captureBuffer.Write(e.Buffer, 0, e.BytesRecorded);
             }
         }
+    }
+
+    private void UpdatePeaksFromPcm16(byte[] buffer, int bytesRecorded)
+    {
+        const int bytesPerSample = 2;
+        var sampleCount = bytesRecorded / bytesPerSample / Channels;
+        var maxLeft = 0f;
+        var maxRight = 0f;
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var position = i * bytesPerSample * Channels;
+            var left = Math.Abs(BitConverter.ToInt16(buffer, position) / 32768f);
+            var right = Math.Abs(BitConverter.ToInt16(buffer, position + 2) / 32768f);
+            if (left > maxLeft)
+            {
+                maxLeft = left;
+            }
+
+            if (right > maxRight)
+            {
+                maxRight = right;
+            }
+        }
+
+        _peakLeft = maxLeft;
+        _peakRight = maxRight;
     }
 
     private sealed record PlaybackEntry(ISampleProvider MixerInput, FloatArraySampleProvider Raw);
