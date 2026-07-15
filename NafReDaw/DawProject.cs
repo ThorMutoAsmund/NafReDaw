@@ -1,5 +1,3 @@
-﻿using System.Text.Json.Serialization;
-
 namespace NafReDaw;
 
 public class DawProject
@@ -10,7 +8,5 @@ public class DawProject
     public string AudioRecordingDeviceId { get; set; } = "-1";
     public string SamplesFolder { get; set; } = "samples";
     public List<LoadedSample> LoadedSamples { get; set; } = [];
-
-    [JsonIgnore]
-    public bool ChangesMade { get; set; }
+    public Arrangement Arrangement { get; set; } = new();
 }

@@ -22,6 +22,11 @@ public static class App
     public static int CurrentlyPlayingSampleHandle { get; set; } = -1;
     public static int CurrentlyPlayingNote { get; set; } = -1;
     public static int CurrentlySelectedNote { get; set; } = -1;
+    public static int ActivePatternIndex { get; set; }
+    /// <summary>Which 8-column window of the 64-step pattern is shown on the Launchpad (0–7).</summary>
+    public static int ArrangeStepPage { get; set; }
+    public static bool IsShiftHeld { get; set; }
+    public static bool ChangesMade { get; set; }
 
     public static void Output(string message)
     {

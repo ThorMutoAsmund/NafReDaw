@@ -10,6 +10,8 @@ internal class Program
     [STAThread]
     static void Main(string[] args)
     {
+        ArrangeSystem.OnTransportTick = RefreshLaunchpad;
+
         if (Debugger.IsAttached && Directory.Exists(App.DebugProjcetFolder))
         {
             Directory.SetCurrentDirectory(App.DebugProjcetFolder);
@@ -92,22 +94,22 @@ internal class Program
                             RefreshLaunchpad();
                             App.Project.MidiInputDeviceIndex = inputDeviceIndex;
                             App.Project.MidiOutputDeviceIndex = outputDeviceIndex;
-                            App.Project.ChangesMade = true;
+                            App.ChangesMade = true;
                             break;
                         }
                     case "play":
                         {
-                            SetDawMode(DawMode.Play);
+                            SetDawMode(DawMode.Play, SubMode.Playing);
                             break;
                         }
                     case "record":
                         {
-                            SetDawMode(DawMode.Edit);
+                            SetDawMode(DawMode.Edit, SubMode.Editing, EditTool.None);
                             break;
                         }
                     case "arrange":
                         {
-                            SetDawMode(DawMode.Arrange);
+                            SetDawMode(DawMode.Arrange, SubMode.Arranging);
                             break;
                         }
                     case "l":
@@ -204,7 +206,7 @@ internal class Program
 
                             App.Project.AudioPlaybackDeviceId = playbackId;
                             App.Project.AudioRecordingDeviceId = recordingId;
-                            App.Project.ChangesMade = true;
+                            App.ChangesMade = true;
 
                             AudioSystem.ApplyAudioDevice();
                             break;
@@ -246,6 +248,7 @@ internal class Program
         }
         finally
         {
+            ArrangeSystem.StopTransport();
             StopRecordingSubModeServices();
             App.Launchpad.Stop();
             App.Launchpad.Dispose();
@@ -257,7 +260,7 @@ internal class Program
 
     static bool AwaitQuitWhenChangesMade()
     {
-        if (!App.Project.ChangesMade)
+        if (!App.ChangesMade)
         {
             return true;
         }
@@ -288,6 +291,10 @@ internal class Program
 
     static void ApplyProject()
     {
+        ArrangeSystem.StopTransport();
+        App.ActivePatternIndex = 0;
+        App.ArrangeStepPage = 0;
+
         MidiSystem.CreateLaunchPadDevice(
             HandleNotePadPressed,
             HandleNotePadReleased,
@@ -399,6 +406,52 @@ internal class Program
             case LaunchpadLayout.UndoButtonCc when App.AudioEngine.IsRecording:
                 {
                     AudioSystem.CancelSamplingRecording();
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.ClickButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    ArrangeSystem.ToggleTransport();
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.UpButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    ArrangeSystem.SelectNextPattern();
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.DownButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    if (App.IsShiftHeld)
+                    {
+                        ArrangeSystem.SelectFirstPattern();
+                    }
+                    else
+                    {
+                        ArrangeSystem.SelectPreviousPattern();
+                    }
+
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.LeftButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    if (App.IsShiftHeld)
+                    {
+                        ArrangeSystem.FirstStepPage();
+                    }
+                    else
+                    {
+                        ArrangeSystem.PreviousStepPage();
+                    }
+
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.RightButtonCc when App.SubMode == SubMode.Arranging:
+                {
+                    ArrangeSystem.NextStepPage();
                     RefreshLaunchpad();
                     break;
                 }
@@ -516,6 +569,7 @@ internal class Program
         }
 
         StopRecordingSubModeServices();
+        ArrangeSystem.StopTransport();
 
         App.CurrentlyPlayingSampleHandle = -1;
         App.CurrentlyPlayingNote = -1;
@@ -548,6 +602,11 @@ internal class Program
         else if (previousMode != SubMode.Recording && newMode == SubMode.Recording)
         {
             StartRecordingSubModeServices();
+        }
+
+        if (previousMode == SubMode.Arranging && newMode != SubMode.Arranging)
+        {
+            ArrangeSystem.StopTransport();
         }
 
         if (newEditTool.HasValue)
@@ -609,6 +668,30 @@ internal class Program
 
     static byte GetPadColorForNote(int note)
     {
+        if (App.SubMode == SubMode.Arranging)
+        {
+            var grid = LaunchpadLayout.GridFromNote(note);
+            if (grid is null)
+            {
+                return LaunchpadColors.Off;
+            }
+
+            var (track, column) = grid.Value;
+
+            // Full-column white playhead when the current step is on this page.
+            if (ArrangeSystem.IsPlayheadColumn(column))
+            {
+                return LaunchpadColors.DimWhite;
+            }
+
+            if (ArrangeSystem.IsCellAssigned(track, column))
+            {
+                return LaunchpadColors.Green;
+            }
+
+            return LaunchpadColors.Off;
+        }
+
         if (App.CurrentlySelectedNote == note && App.SubMode == SubMode.Recording)
         {
             return LaunchpadColors.Red;
@@ -674,6 +757,12 @@ internal class Program
         // Refresh record button
         App.Launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc, App.AudioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
 
+        App.Launchpad.SetSideButton(LaunchpadLayout.UpButtonCc, LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.DownButtonCc, LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.LeftButtonCc, LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.RightButtonCc, LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(LaunchpadLayout.ClickButtonCc, LaunchpadColors.Off);
+
         if (App.SubMode == SubMode.Recording)
         {
             MidiSystem.UpdateVuMeter();
@@ -685,6 +774,22 @@ internal class Program
             App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row2ButtonCc, App.EditTool == EditTool.Volume ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+        }
+        else if (App.SubMode == SubMode.Arranging)
+        {
+            App.Launchpad.SetSideButton(LaunchpadLayout.ClickButtonCc, ArrangeSystem.IsPlaying ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(
+                LaunchpadLayout.UpButtonCc,
+                ArrangeSystem.CanSelectNextPattern ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(
+                LaunchpadLayout.DownButtonCc,
+                ArrangeSystem.CanSelectPreviousPattern ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(
+                LaunchpadLayout.LeftButtonCc,
+                ArrangeSystem.CanPreviousStepPage ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(
+                LaunchpadLayout.RightButtonCc,
+                ArrangeSystem.CanNextStepPage ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
         }
     }
 

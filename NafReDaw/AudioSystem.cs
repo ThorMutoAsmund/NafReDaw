@@ -1,4 +1,4 @@
-﻿using NafAudio;
+using NafAudio;
 
 namespace NafReDaw;
 
@@ -33,7 +33,7 @@ public static class AudioSystem
         }
 
         AssignSampleFromPath(note, destPath);
-        App.Project.ChangesMade = true;        
+        App.ChangesMade = true;        
         App.Output($"Assigned '{destFileName}' to note 0x{note:X2}.");
         
         return true;
@@ -49,7 +49,7 @@ public static class AudioSystem
         }
 
         App.Project.LoadedSamples.Remove(sample);
-        App.Project.ChangesMade = true;        
+        App.ChangesMade = true;        
         App.Output($"Removed sample from note 0x{note:X2}.");
 
         return true;
@@ -164,7 +164,7 @@ public static class AudioSystem
             return false;
         }
 
-        App.Project.ChangesMade = true;
+        App.ChangesMade = true;
 
         App.Debug($"Trim note 0x{App.CurrentlySelectedNote:X2}: start={sample.StartSample}, end={sample.EndSample} ({totalSamples} samples)");
 
@@ -185,7 +185,7 @@ public static class AudioSystem
         }
 
         sample.Loop = !sample.Loop;
-        App.Project.ChangesMade = true;
+        App.ChangesMade = true;
 
         App.Debug($"Loop note 0x{App.CurrentlySelectedNote:X2}: {sample.Loop}");
         return true;
@@ -211,14 +211,18 @@ public static class AudioSystem
         }
 
         sample.Volume = newVolume;
-        App.Project.ChangesMade = true;
+        App.ChangesMade = true;
 
         App.Debug($"Volume note 0x{App.CurrentlySelectedNote:X2}: {sample.Volume:F2}");
 
         return true;
     }
 
-    public static bool PlayLoadedSample(LoadedSample sample, PlayOneShotFinishedDelegate onFinished, int? fromSample = null)
+    public static bool PlayLoadedSample(
+        LoadedSample sample,
+        PlayOneShotFinishedDelegate onFinished,
+        int? fromSample = null,
+        bool replaceCurrent = true)
     {
         if (sample.InMemorySample is null)
         {
@@ -227,7 +231,7 @@ public static class AudioSystem
 
         try
         {
-            if (App.CurrentlyPlayingSampleHandle != -1)
+            if (replaceCurrent && App.CurrentlyPlayingSampleHandle != -1)
             {
                 App.AudioEngine.StopPlayback(App.CurrentlyPlayingSampleHandle);
                 App.CurrentlyPlayingSampleHandle = -1;
@@ -235,25 +239,50 @@ public static class AudioSystem
             }
 
             var start = fromSample ?? sample.StartSample;
-            App.CurrentlyPlayingNote = sample.Note;
-            App.CurrentlyPlayingSampleHandle = App.AudioEngine.PlayOneShot(sample.InMemorySample, start, sample.EndSample, sample.Loop, sample.Volume, () =>
-            {
-                App.CurrentlyPlayingSampleHandle = -1;
-                App.CurrentlyPlayingNote = -1;
-                onFinished();
-            });
+            var handle = -1;
+            handle = App.AudioEngine.PlayOneShot(
+                sample.InMemorySample,
+                start,
+                sample.EndSample,
+                sample.Loop,
+                sample.Volume,
+                () =>
+                {
+                    if (replaceCurrent && App.CurrentlyPlayingSampleHandle == handle)
+                    {
+                        App.CurrentlyPlayingSampleHandle = -1;
+                        App.CurrentlyPlayingNote = -1;
+                    }
 
-            if (App.CurrentlyPlayingSampleHandle == -1)
+                    onFinished();
+                });
+
+            if (handle == -1)
             {
-                App.CurrentlyPlayingNote = -1;
+                if (replaceCurrent)
+                {
+                    App.CurrentlyPlayingNote = -1;
+                }
+
+                return false;
+            }
+
+            if (replaceCurrent)
+            {
+                App.CurrentlyPlayingNote = sample.Note;
+                App.CurrentlyPlayingSampleHandle = handle;
             }
 
             return true;
         }
         catch (Exception ex)
         {
-            App.CurrentlyPlayingSampleHandle = -1;
-            App.CurrentlyPlayingNote = -1;
+            if (replaceCurrent)
+            {
+                App.CurrentlyPlayingSampleHandle = -1;
+                App.CurrentlyPlayingNote = -1;
+            }
+
             App.Output($"Failed to play sample '{sample.FileName}': {ex.Message}");
 
             return false;
@@ -306,7 +335,7 @@ public static class AudioSystem
         var sample = App.Project.LoadedSamples.First(s => s.Note == note);
         sample.Loop = false;
         App.CurrentlySelectedNote = -1;
-        App.Project.ChangesMade = true;
+        App.ChangesMade = true;
         App.Output($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
         StartInputLevelMonitoring();
     }
@@ -366,7 +395,7 @@ public static class AudioSystem
         var drivers = AsioSampleEngine.GetDrivers();
         if (drivers.Count == 0)
         {
-            App.Output("No ASIO drivers found. Audio disabled — use 'audio' to list drivers when one is installed.");
+            App.Output("No ASIO drivers found. Audio disabled ? use 'audio' to list drivers when one is installed.");
             return;
         }
 
@@ -378,7 +407,7 @@ public static class AudioSystem
         catch (Exception ex)
         {
             App.Output($"Failed to start ASIO audio: {ex.Message}");
-            App.Output("Audio disabled — connect your interface and run 'audio' to list available audio drivers.");
+            App.Output("Audio disabled ? connect your interface and run 'audio' to list available audio drivers.");
         }
     }
 

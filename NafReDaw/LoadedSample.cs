@@ -1,4 +1,4 @@
-﻿using NafAudio;
+using NafAudio;
 using System.Text.Json.Serialization;
 
 namespace NafReDaw;

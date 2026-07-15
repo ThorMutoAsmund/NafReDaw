@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace NafReDaw;
 
@@ -36,7 +36,9 @@ public static class Project
             return null;
         }
 
-        loadedProject.ChangesMade = false;
+        App.ChangesMade = false;
+        loadedProject.Arrangement ??= new Arrangement();
+        ArrangeSystem.EnsureInitialized(loadedProject.Arrangement);
         App.Output("Project loaded.");
 
         return loadedProject;
@@ -62,7 +64,7 @@ public static class Project
         );
 
         File.WriteAllText(path, json);
-        App.Project.ChangesMade = false;
+        App.ChangesMade = false;
         App.Output($"Project saved to '{path}'.");
     }
 

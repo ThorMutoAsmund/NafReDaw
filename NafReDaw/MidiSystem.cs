@@ -1,4 +1,4 @@
-﻿using NafMidi;
+using NafMidi;
 
 namespace NafReDaw;
 
@@ -27,9 +27,25 @@ public static class MidiSystem
 
         App.Launchpad = new LaunchpadDevice();
 
+        App.IsShiftHeld = false;
         App.Launchpad.PadPressed += (_, e) => notePadPressedDelegate(e);
         App.Launchpad.PadReleased += (_, e) => notePadReleasedDelegate(e);
-        App.Launchpad.SideButtonPressed += (_, e) => sideButtonDelegate(e);
+        App.Launchpad.SideButtonPressed += (_, e) =>
+        {
+            if (e.ControllerNumber == LaunchpadLayout.ShiftButtonCc)
+            {
+                App.IsShiftHeld = true;
+            }
+
+            sideButtonDelegate(e);
+        };
+        App.Launchpad.SideButtonReleased += (_, e) =>
+        {
+            if (e.ControllerNumber == LaunchpadLayout.ShiftButtonCc)
+            {
+                App.IsShiftHeld = false;
+            }
+        };
 
         App.Launchpad.Start(inputDeviceIndex: inputDeviceIndex, outputDeviceIndex: outputDeviceIndex);
 

@@ -1,4 +1,4 @@
-﻿namespace NafReDaw;
+namespace NafReDaw;
 
 using NafMidi;
 
