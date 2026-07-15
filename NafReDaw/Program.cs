@@ -16,9 +16,10 @@ internal class Program
     private static int currentlyPlayingSampleHandle = -1;
     private static int currentlyPlayingNote = -1;
     private static int currentlyEditingNote = -1;
+    private static int currentlySamplingNote = -1;
     private static CancellationTokenSource? padLongPressCts;
     private static int padLongPressNote = -1;
-    private const int PadLongPressMilliseconds = 1000;
+    private const int PadLongPressMilliseconds = 800;
     private const int LongTrimSeconds = 100;
     private const int ShortTrimSeconds = 10;
 
@@ -357,12 +358,35 @@ internal class Program
         try
         {
             await Task.Delay(PadLongPressMilliseconds, cancellationToken);
+            
             if (padLongPressNote != note)
             {
                 return;
             }
 
-            currentlyEditingNote = currentlyEditingNote == note ? -1 : note;
+            if (currentlyEditingNote == note)
+            {
+                currentlyEditingNote = -1;
+            }
+            else if (currentlySamplingNote == note)
+            {
+                currentlySamplingNote = -1;
+            }
+            else
+            {
+                var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+                if (sample is not null)
+                {
+                    currentlyEditingNote = note;
+                    currentlySamplingNote = -1;
+                }
+                else
+                {
+                    currentlySamplingNote = note;
+                    currentlyEditingNote = -1;
+                }
+            }
+
             RefreshLaunchpad();
             if (Debugger.IsAttached)
             {
@@ -425,9 +449,19 @@ internal class Program
                     SetEditMode(SampleEditMode.End);
                     break;
                 }
-            case LaunchpadLayout.StopClipButtonCc when currentlyEditingNote != -1:
+            case LaunchpadLayout.RecordButtonCc:
                 {
-                    ToggleLoop();
+                    if (currentlySamplingNote != -1)
+                    {
+                        ToggleSamplingRecording();
+                        break;
+                    }
+
+                    if (currentlyEditingNote != -1)
+                    {
+                        ToggleLoop();
+                    }
+
                     break;
                 }
             case LaunchpadLayout.UpButtonCc when currentlyEditingNote != -1 && (editMode is SampleEditMode.Start or SampleEditMode.End):
@@ -482,6 +516,110 @@ internal class Program
         if (Debugger.IsAttached)
         {
             Console.WriteLine($"Loop note 0x{currentlyEditingNote:X2}: {sample.Loop}");
+        }
+    }
+
+    static void ToggleSamplingRecording()
+    {
+        if (currentlySamplingNote == -1)
+        {
+            return;
+        }
+
+        if (audioEngine.IsRecording)
+        {
+            StopSamplingRecording();
+        }
+        else
+        {
+            StartSamplingRecording();
+        }
+    }
+
+    static void StartSamplingRecording()
+    {
+        try
+        {
+            audioEngine.StartRecording();
+            RefreshLaunchpad();
+            Console.WriteLine($"Recording for note 0x{currentlySamplingNote:X2}...");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to start recording: {ex.Message}");
+        }
+    }
+
+    static void StopSamplingRecording()
+    {
+        var samplesFolder = GetSamplesFolder(project);
+        var destPath = GetUniqueRecordingPath(samplesFolder);
+        var note = (byte)currentlySamplingNote;
+
+        try
+        {
+            audioEngine.SaveRecording(destPath);
+        }
+        catch (InvalidOperationException)
+        {
+            Console.WriteLine("No audio recorded.");
+            RefreshLaunchpad();
+            return;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to save recording: {ex.Message}");
+            RefreshLaunchpad();
+            return;
+        }
+
+        AssignSampleFromPath(note, destPath);
+        var sample = project.LoadedSamples.First(s => s.Note == note);
+        sample.Loop = false;
+        project.ChangesMade = true;
+        currentlySamplingNote = -1;
+        RefreshLaunchpad();
+        Console.WriteLine($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
+    }
+
+    static string GetUniqueRecordingPath(string samplesFolder)
+    {
+        var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff");
+        var path = Path.Combine(samplesFolder, $"recording_{timestamp}.wav");
+        for (int i = 1; File.Exists(path); i++)
+        {
+            path = Path.Combine(samplesFolder, $"recording_{timestamp}_{i}.wav");
+        }
+
+        return path;
+    }
+
+    static bool AssignSampleFromPath(byte note, string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+        if (sample is null)
+        {
+            sample = new LoadedSample();
+            project.LoadedSamples.Add(sample);
+        }
+
+        sample.Note = note;
+        sample.FileName = fileName;
+        sample.StartSample = 0;
+
+        try
+        {
+            sample.InMemorySample = AsioSampleEngine.LoadSample(filePath);
+            sample.EndSample = sample.InMemorySample.SampleCount;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load sample '{fileName}': {ex.Message}");
+            sample.InMemorySample = null;
+            sample.EndSample = 0;
+            return false;
         }
     }
 
@@ -541,8 +679,15 @@ internal class Program
     static void SetMode(DawMode newMode)
     {
         audioEngine.StopAllPlayback();
+        if (audioEngine.IsRecording)
+        {
+            audioEngine.StopRecording();
+        }
+
         currentlyPlayingSampleHandle = -1;
         currentlyPlayingNote = -1;
+        currentlyEditingNote = -1;
+        currentlySamplingNote = -1;
         mode = newMode;
         Console.WriteLine($"Mode: {mode}");
         RefreshLaunchpad();
@@ -597,6 +742,11 @@ internal class Program
 
     static byte GetPadColorForNote(int note)
     {
+        if (currentlySamplingNote == note && mode is DawMode.Play or DawMode.Record)
+        {
+            return LaunchpadColors.Red;
+        }
+
         if (!project.LoadedSamples.Any(s => s.Note == note))
         {
             return LaunchpadColors.Off;
@@ -712,14 +862,9 @@ internal class Program
             currentlyEditingNote != -1 && editMode == SampleEditMode.Start ? LaunchpadColors.Green : LaunchpadColors.Off);
         launchpad.SetSideButton(LaunchpadLayout.TrackSelectButtonCc,
             currentlyEditingNote != -1 && editMode == SampleEditMode.End ? LaunchpadColors.Green : LaunchpadColors.Off);
-        
-        // Refresh loop button
-        var editingSample = currentlyEditingNote != -1
-            ? project.LoadedSamples.FirstOrDefault(s => s.Note == currentlyEditingNote)
-            : null;
-        launchpad.SetSideButton(LaunchpadLayout.StopClipButtonCc,
-            editingSample?.Loop == true ? LaunchpadColors.Red : LaunchpadColors.Off);
 
+        launchpad.SetSideButton(LaunchpadLayout.RecordButtonCc,
+            audioEngine.IsRecording ? LaunchpadColors.Red : LaunchpadColors.Off);
     }
 
     static void AddSample(byte note, string sourceFile)
@@ -749,29 +894,7 @@ internal class Program
             return;
         }
 
-        var sample = project.LoadedSamples.FirstOrDefault(s => s.Note == note);
-        if (sample is null)
-        {
-            sample = new LoadedSample();
-            project.LoadedSamples.Add(sample);
-        }
-
-        sample.Note = note;
-        sample.FileName = destFileName;
-        sample.StartSample = 0;
-
-        try
-        {
-            sample.InMemorySample = AsioSampleEngine.LoadSample(destPath);
-            sample.EndSample = sample.InMemorySample.SampleCount;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to load sample '{destFileName}': {ex.Message}");
-            sample.InMemorySample = null;
-            sample.EndSample = 0;
-        }
-
+        AssignSampleFromPath(note, destPath);
         project.ChangesMade = true;
         RefreshLaunchpad();
         Console.WriteLine($"Assigned '{destFileName}' to note 0x{note:X2}.");

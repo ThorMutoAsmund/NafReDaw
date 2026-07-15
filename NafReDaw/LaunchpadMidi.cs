@@ -60,6 +60,7 @@ public static class LaunchpadLayout
     public const int PanButtonCc = 0x06;
     public const int SendsButtonCc = 0x07;
     public const int StopClipButtonCc = 0x08;
+    public const int RecordButtonCc = 0x0A;
     public const int UndoButtonCc = 0x3C;
     public const int ClickButtonCc = 0x46;
     public const int UpButtonCc = 0x5B;
