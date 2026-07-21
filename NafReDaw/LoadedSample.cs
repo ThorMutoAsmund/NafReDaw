@@ -19,6 +19,9 @@ public class LoadedSample
 
     public float Volume { get; set; } = 1f;
 
+    /// <summary>Shared group id for exclusive play (-1 = not in a group).</summary>
+    public int GroupId { get; set; } = -1;
+
     [JsonIgnore]
     public InMemorySample? InMemorySample { get; set; }
 }

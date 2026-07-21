@@ -129,6 +129,7 @@ public static class ArrangeSystem
         App.AudioEngine.StopAllPlayback();
         App.CurrentlyPlayingSampleHandle = -1;
         App.CurrentlyPlayingNote = -1;
+        AudioSystem.ClearAllPlayVoices();
         App.Output("Arrangement stopped.");
         NotifyTransportTick();
     }

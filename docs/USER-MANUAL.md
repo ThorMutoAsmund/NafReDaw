@@ -105,16 +105,43 @@ Use the three mode buttons on the right:
 
 ## Play Mode
 
-**Goal:** Trigger samples like a drum pad.
+**Goal:** Trigger samples like a drum pad — multiple pads can play at once.
 
 1. Press **Session** (or type `play`).
 2. Tap any pad that has a sample — it plays.
 3. Pad colors:
    - **Dim white** — sample loaded
-   - **Bright green** — currently playing
+   - **Bright green** — one-shot currently playing
+   - **Purple** — looping sample currently playing
    - **Off** — no sample
 
-Samples play with their saved trim, loop, and volume settings.
+**Polyphony (one voice per pad):**
+
+| Sample type | Tap while idle | Tap while that pad is playing |
+|-------------|----------------|-------------------------------|
+| **Loop** off | Start | Restart from the beginning |
+| **Loop** off + **Shift** | — | Stop that pad only |
+| **Loop** on | Start | Stop that pad only |
+
+Other pads keep playing. Press **Session** again to stop all playback (kill all).
+
+Samples play with their saved trim, loop, volume, and play-backwards settings.
+
+### Grouping pads
+
+Groups make pads exclusive in Play mode: starting one stops other active pads in the same group.
+
+1. Hold **Undo**.
+2. Tap loaded pads to add/remove them from the pending group (they light **blue**; audio is not started or stopped).
+3. Release **Undo** to commit.
+
+| Pending selection | On release |
+|-------------------|------------|
+| 2+ pads | New group (pads leave any previous group) |
+| 1 pad | Ungroup that pad |
+| 0 pads | No change |
+
+A pad can belong to only one group. Groups are saved in the project file.
 
 ---
 

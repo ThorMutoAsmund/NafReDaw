@@ -31,6 +31,8 @@ public static class MidiSystem
 
         App.IsShiftHeld = false;
         App.IsRecordHeld = false;
+        App.IsGroupHeld = false;
+        App.PendingGroupNotes.Clear();
         App.Launchpad.PadPressed += (_, e) => notePadPressedDelegate(e);
         App.Launchpad.PadReleased += (_, e) => notePadReleasedDelegate(e);
         App.Launchpad.SideButtonPressed += (_, e) =>
@@ -45,6 +47,11 @@ public static class MidiSystem
                 App.IsRecordHeld = true;
             }
 
+            if (e.ControllerNumber == LaunchpadLayout.UndoButtonCc)
+            {
+                App.IsGroupHeld = true;
+            }
+
             sideButtonDelegate(e);
         };
         App.Launchpad.SideButtonReleased += (_, e) =>
@@ -57,6 +64,19 @@ public static class MidiSystem
             if (e.ControllerNumber == LaunchpadLayout.RecordButtonCc)
             {
                 App.IsRecordHeld = false;
+            }
+
+            if (e.ControllerNumber == LaunchpadLayout.UndoButtonCc)
+            {
+                App.IsGroupHeld = false;
+                if (App.DawMode == DawMode.Play)
+                {
+                    AudioSystem.CommitPendingGroup();
+                }
+                else
+                {
+                    App.PendingGroupNotes.Clear();
+                }
             }
 
             sideButtonReleasedDelegate?.Invoke(e);

@@ -48,8 +48,14 @@ public static class AudioSystem
             return false;
         }
 
+        var oldGroupId = sample.GroupId;
         App.Project.LoadedSamples.Remove(sample);
-        App.ChangesMade = true;        
+        if (oldGroupId != -1)
+        {
+            DissolveUndersizedGroup(oldGroupId);
+        }
+
+        App.ChangesMade = true;
         App.Output($"Removed sample from note 0x{note:X2}.");
 
         return true;
@@ -319,7 +325,192 @@ public static class AudioSystem
         return true;
     }
 
-    public static bool PlayLoadedSample(
+    public static bool TryGetPlayVoice(int note, out int handle)
+    {
+        return App.ActivePlayVoices.TryGetValue(note, out handle);
+    }
+
+    public static void RegisterPlayVoice(int note, int handle)
+    {
+        App.ActivePlayVoices[note] = handle;
+    }
+
+    public static void ClearPlayVoice(int note)
+    {
+        App.ActivePlayVoices.Remove(note);
+    }
+
+    public static void ClearPlayVoiceIfHandle(int note, int handle)
+    {
+        if (App.ActivePlayVoices.TryGetValue(note, out var current) && current == handle)
+        {
+            App.ActivePlayVoices.Remove(note);
+        }
+    }
+
+    public static void ClearAllPlayVoices()
+    {
+        App.ActivePlayVoices.Clear();
+    }
+
+    public static void TogglePendingGroupNote(int note)
+    {
+        if (!App.PendingGroupNotes.Add(note))
+        {
+            App.PendingGroupNotes.Remove(note);
+        }
+    }
+
+    public static void CommitPendingGroup()
+    {
+        var notes = App.PendingGroupNotes.ToList();
+        App.PendingGroupNotes.Clear();
+
+        if (notes.Count == 0)
+        {
+            return;
+        }
+
+        if (notes.Count == 1)
+        {
+            var only = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == notes[0]);
+            if (only is null || only.GroupId == -1)
+            {
+                return;
+            }
+
+            var oldGroupId = only.GroupId;
+            only.GroupId = -1;
+            DissolveUndersizedGroup(oldGroupId);
+            App.ChangesMade = true;
+            App.Output($"Ungrouped note 0x{only.Note:X2}.");
+            return;
+        }
+
+        var newGroupId = AllocateNextGroupId();
+        var affectedOldGroups = new HashSet<int>();
+
+        foreach (var note in notes)
+        {
+            var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+            if (sample is null)
+            {
+                continue;
+            }
+
+            if (sample.GroupId != -1)
+            {
+                affectedOldGroups.Add(sample.GroupId);
+            }
+
+            sample.GroupId = newGroupId;
+        }
+
+        foreach (var oldGroupId in affectedOldGroups)
+        {
+            DissolveUndersizedGroup(oldGroupId);
+        }
+
+        App.ChangesMade = true;
+        App.Output($"Grouped {notes.Count} pads (group {newGroupId}).");
+    }
+
+    private static int AllocateNextGroupId()
+    {
+        var maxId = App.Project.LoadedSamples.Select(s => s.GroupId).DefaultIfEmpty(-1).Max();
+        return maxId + 1;
+    }
+
+    private static void DissolveUndersizedGroup(int groupId)
+    {
+        if (groupId < 0)
+        {
+            return;
+        }
+
+        var members = App.Project.LoadedSamples.Where(s => s.GroupId == groupId).ToList();
+        if (members.Count >= 2)
+        {
+            return;
+        }
+
+        foreach (var member in members)
+        {
+            member.GroupId = -1;
+        }
+    }
+
+    private static void StopOtherGroupVoices(LoadedSample sample)
+    {
+        if (sample.GroupId < 0)
+        {
+            return;
+        }
+
+        foreach (var (note, handle) in App.ActivePlayVoices.ToList())
+        {
+            if (note == sample.Note)
+            {
+                continue;
+            }
+
+            var other = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+            if (other?.GroupId != sample.GroupId)
+            {
+                continue;
+            }
+
+            App.AudioEngine.StopPlayback(handle);
+            ClearPlayVoice(note);
+        }
+    }
+
+    /// <summary>
+    /// Play-mode pad press: polyphony across pads, one voice per pad.
+    /// Looping pads toggle stop; one-shots re-trigger (Shift+tap stops a playing one-shot).
+    /// Grouped pads are exclusive: starting one stops other active voices in the same group.
+    /// </summary>
+    public static void HandlePlayModePad(LoadedSample sample, PlayOneShotFinishedDelegate onVoicesChanged)
+    {
+        if (sample.InMemorySample is null)
+        {
+            return;
+        }
+
+        var note = sample.Note;
+        if (TryGetPlayVoice(note, out var existingHandle))
+        {
+            App.AudioEngine.StopPlayback(existingHandle);
+            ClearPlayVoice(note);
+
+            if (sample.Loop || App.IsShiftHeld)
+            {
+                onVoicesChanged();
+                return;
+            }
+        }
+
+        StopOtherGroupVoices(sample);
+
+        var handle = -1;
+        handle = PlayLoadedSample(
+            sample,
+            () =>
+            {
+                ClearPlayVoiceIfHandle(note, handle);
+                onVoicesChanged();
+            },
+            replaceCurrent: false);
+
+        if (handle != -1)
+        {
+            RegisterPlayVoice(note, handle);
+            onVoicesChanged();
+        }
+    }
+
+    /// <summary>Starts playback. Returns the engine handle, or -1 on failure.</summary>
+    public static int PlayLoadedSample(
         LoadedSample sample,
         PlayOneShotFinishedDelegate onFinished,
         int? fromSample = null,
@@ -327,7 +518,7 @@ public static class AudioSystem
     {
         if (sample.InMemorySample is null)
         {
-            return false;
+            return -1;
         }
 
         try
@@ -367,7 +558,7 @@ public static class AudioSystem
                     App.CurrentlyPlayingNote = -1;
                 }
 
-                return false;
+                return -1;
             }
 
             if (replaceCurrent)
@@ -376,7 +567,7 @@ public static class AudioSystem
                 App.CurrentlyPlayingSampleHandle = handle;
             }
 
-            return true;
+            return handle;
         }
         catch (Exception ex)
         {
@@ -388,7 +579,7 @@ public static class AudioSystem
 
             App.Output($"Failed to play sample '{sample.FileName}': {ex.Message}");
 
-            return false;
+            return -1;
         }
     }
 
@@ -439,6 +630,7 @@ public static class AudioSystem
         var sample = App.Project.LoadedSamples.First(s => s.Note == note);
         sample.Loop = false;
         sample.PlayBackwards = false;
+        sample.GroupId = -1;
         App.CurrentlySelectedNote = -1;
         App.ChangesMade = true;
         App.Output($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");

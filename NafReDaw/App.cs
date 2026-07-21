@@ -21,6 +21,8 @@ public static class App
     public static AsioSampleEngine AudioEngine { get; set; } = new AsioSampleEngine();
     public static int CurrentlyPlayingSampleHandle { get; set; } = -1;
     public static int CurrentlyPlayingNote { get; set; } = -1;
+    /// <summary>Play-mode voices: pad note → engine playback handle (one voice per pad).</summary>
+    public static Dictionary<int, int> ActivePlayVoices { get; } = new();
     public static int CurrentlySelectedNote { get; set; } = -1;
     public static int ActivePatternIndex { get; set; }
     /// <summary>Which 8-column window of the 64-step pattern is shown on the Launchpad (0–7).</summary>
@@ -29,6 +31,10 @@ public static class App
     public static int ArrangePaintNote { get; set; } = -1;
     public static bool IsShiftHeld { get; set; }
     public static bool IsRecordHeld { get; set; }
+    /// <summary>True while Undo is held in Play mode for grouping pads.</summary>
+    public static bool IsGroupHeld { get; set; }
+    /// <summary>Notes selected for the pending group while <see cref="IsGroupHeld"/>.</summary>
+    public static HashSet<int> PendingGroupNotes { get; } = new();
     /// <summary>When true, sample recordings are saved as mono (downmixed from stereo input).</summary>
     public static bool RecordMono { get; set; }
     public static bool ChangesMade { get; set; }

@@ -319,9 +319,25 @@ internal class Program
         if (App.DawMode is DawMode.Play or DawMode.Edit)
         {
             var loadedSample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == e.NoteNumber);
+
+            if (App.DawMode == DawMode.Play && App.IsGroupHeld)
+            {
+                if (loadedSample is not null)
+                {
+                    AudioSystem.TogglePendingGroupNote(e.NoteNumber);
+                    RefreshLaunchpad();
+                }
+
+                return;
+            }
+
             if (loadedSample?.InMemorySample is not null)
             {
-                if (AudioSystem.PlayLoadedSample(loadedSample, () => RefreshLaunchpad()))
+                if (App.DawMode == DawMode.Play)
+                {
+                    AudioSystem.HandlePlayModePad(loadedSample, () => RefreshLaunchpad());
+                }
+                else if (AudioSystem.PlayLoadedSample(loadedSample, () => RefreshLaunchpad()) != -1)
                 {
                     RefreshLaunchpad();
                 }
@@ -379,6 +395,11 @@ internal class Program
     static void HandleSideButtonReleased(LaunchpadButtonEventArgs e)
     {
         if (e.ControllerNumber == LaunchpadLayout.RecordButtonCc && App.SubMode == SubMode.Arranging)
+        {
+            RefreshLaunchpad();
+        }
+
+        if (e.ControllerNumber == LaunchpadLayout.UndoButtonCc && App.DawMode == DawMode.Play)
         {
             RefreshLaunchpad();
         }
@@ -480,6 +501,12 @@ internal class Program
                         App.AudioEngine.StopAllPlayback();
                         App.CurrentlyPlayingSampleHandle = -1;
                         App.CurrentlyPlayingNote = -1;
+                        AudioSystem.ClearAllPlayVoices();
+                    }
+                    else if (AudioSystem.TryGetPlayVoice(note, out var playHandle))
+                    {
+                        App.AudioEngine.StopPlayback(playHandle);
+                        AudioSystem.ClearPlayVoice(note);
                     }
 
                     if (AudioSystem.RemoveSample(note))
@@ -505,6 +532,11 @@ internal class Program
             case LaunchpadLayout.UndoButtonCc when App.AudioEngine.IsRecording:
                 {
                     AudioSystem.CancelSamplingRecording();
+                    RefreshLaunchpad();
+                    break;
+                }
+            case LaunchpadLayout.UndoButtonCc when App.DawMode == DawMode.Play:
+                {
                     RefreshLaunchpad();
                     break;
                 }
@@ -685,6 +717,9 @@ internal class Program
 
         App.CurrentlyPlayingSampleHandle = -1;
         App.CurrentlyPlayingNote = -1;
+        AudioSystem.ClearAllPlayVoices();
+        App.IsGroupHeld = false;
+        App.PendingGroupNotes.Clear();
         App.CurrentlySelectedNote = -1;
         App.DawMode = newDawMode;
         App.Output($"Mode: {App.DawMode}");
@@ -834,6 +869,17 @@ internal class Program
             return LaunchpadColors.Blue;
         }
 
+        if (App.IsGroupHeld && App.PendingGroupNotes.Contains(note))
+        {
+            return LaunchpadColors.Blue;
+        }
+
+        if (AudioSystem.TryGetPlayVoice(note, out _))
+        {
+            var playingSample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == note);
+            return playingSample?.Loop == true ? LaunchpadColors.Purple : LaunchpadColors.GreenBright;
+        }
+
         if (App.CurrentlyPlayingNote == note)
         {
             return LaunchpadColors.GreenBright;
@@ -900,6 +946,9 @@ internal class Program
         App.Launchpad.SetSideButton(LaunchpadLayout.LeftButtonCc, LaunchpadColors.Off);
         App.Launchpad.SetSideButton(LaunchpadLayout.RightButtonCc, LaunchpadColors.Off);
         App.Launchpad.SetSideButton(LaunchpadLayout.ClickButtonCc, LaunchpadColors.Off);
+        App.Launchpad.SetSideButton(
+            LaunchpadLayout.UndoButtonCc,
+            App.DawMode == DawMode.Play && App.IsGroupHeld ? LaunchpadColors.Blue : LaunchpadColors.Off);
 
         if (App.SubMode == SubMode.Recording)
         {
