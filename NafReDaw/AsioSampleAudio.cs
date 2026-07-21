@@ -712,7 +712,8 @@ public sealed class AsioSampleEngine : IDisposable
 
     /// <summary>
     /// Plays a sample region [<paramref name="start"/>, <paramref name="end"/>).
-    /// Optional <paramref name="playbackStart"/> seeks within that region; loops always restart at <paramref name="start"/>.
+    /// Optional <paramref name="playbackStart"/> seeks within that region; loops always restart at the region start
+    /// (or region end when <paramref name="playBackwards"/> is true).
     /// </summary>
     public int PlayOneShot(
         InMemorySample sample,
@@ -721,7 +722,8 @@ public sealed class AsioSampleEngine : IDisposable
         bool loop,
         float volume = 1f,
         Action? onFinished = null,
-        int? playbackStart = null)
+        int? playbackStart = null,
+        bool playBackwards = false)
     {
         start = Math.Clamp(start, 0, sample.SampleCount);
         end = end > 0
@@ -733,14 +735,26 @@ public sealed class AsioSampleEngine : IDisposable
             return -1;
         }
 
-        var samples = start == 0 && end == sample.SampleCount ?
-            sample.Samples :
-            sample.Samples.AsSpan(start, end - start).ToArray();
+        float[] samples;
+        if (start == 0 && end == sample.SampleCount && !playBackwards)
+        {
+            samples = sample.Samples;
+        }
+        else
+        {
+            samples = sample.Samples.AsSpan(start, end - start).ToArray();
+            if (playBackwards)
+            {
+                ReverseInterleavedFrames(samples, sample.WaveFormat.Channels);
+            }
+        }
 
         var initialPosition = 0;
         if (playbackStart is int playFrom)
         {
-            initialPosition = Math.Clamp(playFrom - start, 0, samples.Length);
+            initialPosition = playBackwards
+                ? Math.Clamp(end - playFrom, 0, samples.Length)
+                : Math.Clamp(playFrom - start, 0, samples.Length);
         }
 
         EnsurePlaybackStarted();
@@ -790,6 +804,28 @@ public sealed class AsioSampleEngine : IDisposable
 
         _mixer!.AddMixerInput(input, raw);
         return handle;
+    }
+
+    /// <summary>Reverses interleaved sample frames in place, keeping channel order within each frame.</summary>
+    private static void ReverseInterleavedFrames(float[] samples, int channels)
+    {
+        channels = Math.Max(1, channels);
+        var frameCount = samples.Length / channels;
+        if (frameCount < 2)
+        {
+            return;
+        }
+
+        var frame = new float[channels];
+        for (var i = 0; i < frameCount / 2; i++)
+        {
+            var j = frameCount - 1 - i;
+            var iOffset = i * channels;
+            var jOffset = j * channels;
+            Array.Copy(samples, iOffset, frame, 0, channels);
+            Array.Copy(samples, jOffset, samples, iOffset, channels);
+            Array.Copy(frame, 0, samples, jOffset, channels);
+        }
     }
 
     public void StopPlayback(int handle)

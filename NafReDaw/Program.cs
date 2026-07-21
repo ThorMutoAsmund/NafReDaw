@@ -438,6 +438,15 @@ internal class Program
                     SetEditTool(App.EditTool == EditTool.Volume ? EditTool.None : EditTool.Volume);
                     break;
                 }
+            case LaunchpadLayout.Row6ButtonCc when App.SubMode == SubMode.Editing:
+                {
+                    if (AudioSystem.TogglePlayBackwards())
+                    {
+                        RefreshLaunchpad();
+                    }
+
+                    break;
+                }
             case LaunchpadLayout.Row7ButtonCc when App.SubMode == SubMode.Editing:
                 {
                     if (AudioSystem.ToggleLoop())
@@ -902,6 +911,7 @@ internal class Program
             App.Launchpad.SetSideButton(LaunchpadLayout.Row0ButtonCc, App.EditTool == EditTool.Start ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row1ButtonCc, App.EditTool == EditTool.End ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row2ButtonCc, App.EditTool == EditTool.Volume ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
+            App.Launchpad.SetSideButton(LaunchpadLayout.Row6ButtonCc, sample?.PlayBackwards == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
             App.Launchpad.SetSideButton(LaunchpadLayout.Row7ButtonCc, sample?.Loop == true ? LaunchpadColors.GreenBright : LaunchpadColors.Off);
         }
         else if (App.SubMode == SubMode.Arranging)

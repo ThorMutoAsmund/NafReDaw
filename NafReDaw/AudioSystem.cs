@@ -272,6 +272,26 @@ public static class AudioSystem
         return true;
     }
 
+    public static bool TogglePlayBackwards()
+    {
+        if (App.CurrentlySelectedNote == -1)
+        {
+            return false;
+        }
+
+        var sample = App.Project.LoadedSamples.FirstOrDefault(s => s.Note == App.CurrentlySelectedNote);
+        if (sample is null)
+        {
+            return false;
+        }
+
+        sample.PlayBackwards = !sample.PlayBackwards;
+        App.ChangesMade = true;
+
+        App.Debug($"PlayBackwards note 0x{App.CurrentlySelectedNote:X2}: {sample.PlayBackwards}");
+        return true;
+    }
+
     public static bool AdjustSampleVolume(float delta)
     {
         if (App.CurrentlySelectedNote == -1)
@@ -320,7 +340,6 @@ public static class AudioSystem
             }
 
             var regionStart = sample.StartSample;
-            var playbackStart = fromSample ?? regionStart;
             var handle = -1;
             handle = App.AudioEngine.PlayOneShot(
                 sample.InMemorySample,
@@ -338,7 +357,8 @@ public static class AudioSystem
 
                     onFinished();
                 },
-                playbackStart: playbackStart);
+                playbackStart: fromSample,
+                playBackwards: sample.PlayBackwards);
 
             if (handle == -1)
             {
@@ -418,6 +438,7 @@ public static class AudioSystem
         AudioSystem.AssignSampleFromPath(note, destPath);
         var sample = App.Project.LoadedSamples.First(s => s.Note == note);
         sample.Loop = false;
+        sample.PlayBackwards = false;
         App.CurrentlySelectedNote = -1;
         App.ChangesMade = true;
         App.Output($"Recorded '{Path.GetFileName(destPath)}' to note 0x{note:X2}.");
