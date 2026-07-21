@@ -351,23 +351,59 @@ public sealed class InMemorySample
     }
 }
 
-/// <summary>Plays samples from a float array. Supports one-shot or looping with optional delay.</summary>
+/// <summary>
+/// Plays a region of a float array. Supports one-shot or looping, optional delay,
+/// and reverse playback by reading frames backward (no preprocess reverse).
+/// </summary>
 public sealed class FloatArraySampleProvider : ISampleProvider
 {
     private readonly float[] _samples;
+    private readonly int _regionStart;
+    private readonly int _regionLength;
+    private readonly int _channels;
+    private readonly int _frameCount;
     private readonly bool _loop;
+    private readonly bool _playBackwards;
     private long _position;
+    private int _frameIndex;
     private bool _finishedRaised;
     private int? _stopAfter;
     private int _startAfter;
 
-    public FloatArraySampleProvider(float[] samples, WaveFormat waveFormat, bool loop = false, int startAfter = 0, int initialPosition = 0)
+    public FloatArraySampleProvider(
+        float[] samples,
+        WaveFormat waveFormat,
+        bool loop = false,
+        int startAfter = 0,
+        int initialPosition = 0,
+        int regionStart = 0,
+        int? regionEnd = null,
+        bool playBackwards = false)
     {
         _samples = samples;
         WaveFormat = waveFormat;
         _loop = loop;
         _startAfter = startAfter;
-        _position = Math.Clamp(initialPosition, 0, Math.Max(0, samples.Length));
+        _playBackwards = playBackwards;
+        _channels = Math.Max(1, waveFormat.Channels);
+
+        _regionStart = Math.Clamp(regionStart, 0, samples.Length);
+        var end = regionEnd is int value
+            ? Math.Clamp(value, _regionStart, samples.Length)
+            : samples.Length;
+        _frameCount = (end - _regionStart) / _channels;
+        _regionLength = _frameCount * _channels;
+
+        initialPosition = Math.Clamp(initialPosition, 0, _regionLength);
+        if (_playBackwards)
+        {
+            var framesFromEnd = initialPosition / _channels;
+            _frameIndex = _frameCount - 1 - framesFromEnd;
+        }
+        else
+        {
+            _position = initialPosition;
+        }
     }
 
     public event Action? Finished;
@@ -378,7 +414,6 @@ public sealed class FloatArraySampleProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
-        var totalSamples = _samples.Length;
         var read = 0;
 
         if (_startAfter > 0)
@@ -392,18 +427,25 @@ public sealed class FloatArraySampleProvider : ISampleProvider
             _startAfter -= read;
         }
 
+        if (_playBackwards)
+        {
+            return read + ReadBackwards(buffer, offset + read, count - read);
+        }
+
+        return read + ReadForwards(buffer, offset + read, count - read);
+    }
+
+    private int ReadForwards(float[] buffer, int offset, int count)
+    {
+        var read = 0;
+
         while (read < count)
         {
-            if (_position >= totalSamples)
+            if (_position >= _regionLength)
             {
                 if (!_loop)
                 {
-                    if (!_finishedRaised)
-                    {
-                        _finishedRaised = true;
-                        Finished?.Invoke();
-                    }
-
+                    RaiseFinished();
                     break;
                 }
 
@@ -411,18 +453,14 @@ public sealed class FloatArraySampleProvider : ISampleProvider
                 _position = 0;
             }
 
-            var toRead = (int)Math.Min(count - read, totalSamples - _position);
+            var toRead = (int)Math.Min(count - read, _regionLength - _position);
             if (_stopAfter.HasValue)
             {
                 toRead = Math.Min(toRead, _stopAfter.Value);
                 _stopAfter -= toRead;
             }
 
-            for (var i = 0; i < toRead; i++)
-            {
-                buffer[offset + read + i] = _samples[_position + i];
-            }
-
+            Array.Copy(_samples, _regionStart + (int)_position, buffer, offset + read, toRead);
             _position += toRead;
             read += toRead;
 
@@ -433,6 +471,64 @@ public sealed class FloatArraySampleProvider : ISampleProvider
         }
 
         return read;
+    }
+
+    private int ReadBackwards(float[] buffer, int offset, int count)
+    {
+        var read = 0;
+
+        while (read + _channels <= count)
+        {
+            if (_frameCount == 0)
+            {
+                RaiseFinished();
+                break;
+            }
+
+            if (_frameIndex < 0)
+            {
+                if (!_loop)
+                {
+                    RaiseFinished();
+                    break;
+                }
+
+                RestartingLoop?.Invoke();
+                _frameIndex = _frameCount - 1;
+            }
+
+            var toRead = _channels;
+            if (_stopAfter.HasValue)
+            {
+                if (_stopAfter.Value < _channels)
+                {
+                    break;
+                }
+
+                _stopAfter -= toRead;
+            }
+
+            var srcOffset = _regionStart + _frameIndex * _channels;
+            Array.Copy(_samples, srcOffset, buffer, offset + read, toRead);
+            _frameIndex--;
+            read += toRead;
+
+            if (_stopAfter.HasValue && _stopAfter.Value == 0)
+            {
+                break;
+            }
+        }
+
+        return read;
+    }
+
+    private void RaiseFinished()
+    {
+        if (!_finishedRaised)
+        {
+            _finishedRaised = true;
+            Finished?.Invoke();
+        }
     }
 }
 
@@ -714,6 +810,7 @@ public sealed class AsioSampleEngine : IDisposable
     /// Plays a sample region [<paramref name="start"/>, <paramref name="end"/>).
     /// Optional <paramref name="playbackStart"/> seeks within that region; loops always restart at the region start
     /// (or region end when <paramref name="playBackwards"/> is true).
+    /// Reverse playback reads frames backward — no preprocess copy/reverse.
     /// </summary>
     public int PlayOneShot(
         InMemorySample sample,
@@ -735,31 +832,25 @@ public sealed class AsioSampleEngine : IDisposable
             return -1;
         }
 
-        float[] samples;
-        if (start == 0 && end == sample.SampleCount && !playBackwards)
-        {
-            samples = sample.Samples;
-        }
-        else
-        {
-            samples = sample.Samples.AsSpan(start, end - start).ToArray();
-            if (playBackwards)
-            {
-                ReverseInterleavedFrames(samples, sample.WaveFormat.Channels);
-            }
-        }
-
+        var regionLength = end - start;
         var initialPosition = 0;
         if (playbackStart is int playFrom)
         {
             initialPosition = playBackwards
-                ? Math.Clamp(end - playFrom, 0, samples.Length)
-                : Math.Clamp(playFrom - start, 0, samples.Length);
+                ? Math.Clamp(end - playFrom, 0, regionLength)
+                : Math.Clamp(playFrom - start, 0, regionLength);
         }
 
         EnsurePlaybackStarted();
         var handle = _nextPlaybackHandle++;
-        var raw = new FloatArraySampleProvider(samples, sample.WaveFormat, loop: loop, initialPosition: initialPosition);
+        var raw = new FloatArraySampleProvider(
+            sample.Samples,
+            sample.WaveFormat,
+            loop: loop,
+            initialPosition: initialPosition,
+            regionStart: start,
+            regionEnd: end,
+            playBackwards: playBackwards);
         raw.Finished += () =>
         {
             RemovePlayback(handle);
@@ -804,28 +895,6 @@ public sealed class AsioSampleEngine : IDisposable
 
         _mixer!.AddMixerInput(input, raw);
         return handle;
-    }
-
-    /// <summary>Reverses interleaved sample frames in place, keeping channel order within each frame.</summary>
-    private static void ReverseInterleavedFrames(float[] samples, int channels)
-    {
-        channels = Math.Max(1, channels);
-        var frameCount = samples.Length / channels;
-        if (frameCount < 2)
-        {
-            return;
-        }
-
-        var frame = new float[channels];
-        for (var i = 0; i < frameCount / 2; i++)
-        {
-            var j = frameCount - 1 - i;
-            var iOffset = i * channels;
-            var jOffset = j * channels;
-            Array.Copy(samples, iOffset, frame, 0, channels);
-            Array.Copy(samples, jOffset, samples, iOffset, channels);
-            Array.Copy(frame, 0, samples, jOffset, channels);
-        }
     }
 
     public void StopPlayback(int handle)
